@@ -7,7 +7,7 @@ A working merchant dashboard for the 8-hour PayTime hackathon, built using stati
 ```bash
 python -m pip install -r requirements-ui.txt
 python seed.py
-python -m uvicorn preview:app --reload
+python -m uvicorn app:app --reload
 ```
 Open `http://127.0.0.1:8000`.
 

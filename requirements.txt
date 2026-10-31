@@ -6,3 +6,4 @@ python-dotenv
 indic-transliteration
 numpy
 matplotlib
+sarvamai

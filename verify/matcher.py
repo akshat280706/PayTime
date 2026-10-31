@@ -42,6 +42,27 @@ def match_transaction(conn: sqlite3.Connection, *, debt_id: int, amount: float, 
     return None
 
 
+def match_feed_transaction(conn: sqlite3.Connection, *, debt_id: int):
+    """Feed-only check (no screenshot, so no reference): a successful, unused ledger entry with exactly the debt's
+    amount, dated no earlier than a day before the debt was created. Returns the transaction or None.
+    ponytail: amount+window only; two debts with the same amount can race for one payment, enforce payer_handle
+    once the seed's demo transaction carries the contact's handle."""
+    debt = conn.execute("SELECT amount, status, created_at FROM debts WHERE id=?", (debt_id,)).fetchone()
+    if not debt or debt[1] in ('settled', 'opted_out'):
+        return None
+    created = datetime.fromisoformat(debt[2].replace('Z', '+00:00')).replace(tzinfo=None)
+    for txid, txamount, txtime, txref, handle in conn.execute(
+            "SELECT id, amount, ts, ref, payer_handle FROM transactions WHERE status='SUCCESS' ORDER BY ts"):
+        if round(float(txamount)*100) != round(float(debt[0])*100):
+            continue
+        if datetime.fromisoformat(txtime.replace('Z', '+00:00')).replace(tzinfo=None) < created - timedelta(days=1):
+            continue
+        if conn.execute("SELECT 1 FROM contact_log WHERE outcome=?", ('verified:'+txref,)).fetchone():
+            continue
+        return {'id': txid, 'amount': txamount, 'ts': txtime, 'ref': txref, 'payer_handle': handle}
+    return None
+
+
 def settle_debt(conn: sqlite3.Connection, debt_id: int, transaction: dict):
     """Atomic update; the null next_action_at is the stop-chasing signal."""
     with conn:
