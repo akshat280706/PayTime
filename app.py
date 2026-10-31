@@ -79,4 +79,4 @@ app.mount("/ui", StaticFiles(directory=ROOT / "ui"), name="ui")  # after the rou
 
 if __name__ == "__main__":  # python app.py -> reachable from other machines on the LAN
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))  # hosts (Railway) set PORT
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))  # hosts (Render sets PORT=10000) set PORT
