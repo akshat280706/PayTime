@@ -5,3 +5,5 @@ requests
 python-dotenv
 google-genai
 indic-transliteration
+numpy
+matplotlib
