@@ -12,7 +12,7 @@
 Copy the contents of this folder into the existing PayTime repository. Do **not** overwrite teammates' `app.py`, `schema.sql`, or `seed.py` without coordination.
 
 ```bash
-pip install -r requirements-ui.txt
+pip install -r requirements.txt
 python seed.py
 python -m uvicorn app:app --reload
 ```

@@ -5,7 +5,7 @@ A working merchant dashboard for the 8-hour PayTime hackathon, built using stati
 ## Run locally
 
 ```bash
-python -m pip install -r requirements-ui.txt
+python -m pip install -r requirements.txt
 python seed.py
 python -m uvicorn app:app --reload
 ```
