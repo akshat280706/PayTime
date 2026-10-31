@@ -13,6 +13,19 @@ from sarvamai import SarvamAI
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TTS_TEXT = "Namaste. This is an automated reminder from PayTime."
+LANGUAGE_CODES = {
+    "en": "en-IN",
+    "hi": "hi-IN",
+    "mr": "mr-IN",
+    "ta": "ta-IN",
+}
+DEFAULT_SPEAKER = "simran"  # Female Bulbul v3 voice; works across supported languages.
+
+
+def sarvam_language_code(language: str) -> str:
+    """Convert PayTime's compact contact language code to Sarvam's BCP-47 code."""
+    normalized = language.strip().lower()
+    return LANGUAGE_CODES.get(normalized, language)
 
 
 def get_client() -> SarvamAI:
@@ -26,12 +39,13 @@ def get_client() -> SarvamAI:
     return SarvamAI(api_subscription_key=api_key)
 
 
-def synthesize(text: str, language_code: str = "hi-IN") -> bytes:
+def synthesize(text: str, language: str = "hi") -> bytes:
     """Turn text into WAV audio bytes using Sarvam Bulbul."""
     response = get_client().text_to_speech.convert(
         text=text,
-        language_code=language_code,
-        model="bulbul:v4-flash",
+        language_code=sarvam_language_code(language),
+        model="bulbul:v3",
+        speaker=DEFAULT_SPEAKER,
         output_audio_codec="wav",
     )
     return base64.b64decode(response.audios[0])

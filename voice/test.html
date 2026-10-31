@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PayTime Voice Check</title>
+  <style>
+    body { background: #101827; color: #f8fafc; font: 18px/1.5 system-ui, sans-serif; margin: 0; }
+    main { max-width: 680px; margin: 8vh auto; padding: 32px; }
+    button { background: #22c55e; border: 0; border-radius: 10px; color: #052e16; cursor: pointer; font: inherit; font-weight: 700; padding: 14px 20px; }
+    button[disabled] { cursor: wait; opacity: .55; }
+    #status { color: #a5f3fc; min-height: 1.5em; }
+    #transcript { background: #1e293b; border-radius: 10px; min-height: 56px; padding: 16px; white-space: pre-wrap; }
+    .hint { color: #cbd5e1; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>PayTime voice check</h1>
+    <p>Record a short Hindi, Hinglish, or English message. PayTime will transcribe it, then read the result back.</p>
+    <button id="recordButton" type="button">Start recording</button>
+    <p id="status" aria-live="polite">Ready.</p>
+    <p class="hint">Transcript</p>
+    <div id="transcript">—</div>
+  </main>
+  <script>
+    const button = document.querySelector('#recordButton');
+    const status = document.querySelector('#status');
+    const transcript = document.querySelector('#transcript');
+    let recorder;
+    let stream;
+    let chunks = [];
+    let currentStep = 'microphone';
+
+    function setBusy(message) {
+      button.disabled = true;
+      status.textContent = message;
+    }
+
+    async function speak(text) {
+      currentStep = 'TTS request';
+      const response = await fetch('/api/voice/tts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: `I heard: ${text}`, language: 'hi'}),
+      });
+      if (!response.ok) throw new Error((await response.json()).detail || 'TTS failed');
+      const source = URL.createObjectURL(await response.blob());
+      const player = new Audio(source);
+      player.onended = () => URL.revokeObjectURL(source);
+      await player.play();
+    }
+
+    async function transcribe(blob) {
+      currentStep = 'STT request';
+      const form = new FormData();
+      form.append('audio', blob, 'voice-check.webm');
+      const response = await fetch('/api/voice/stt', {method: 'POST', body: form});
+      if (!response.ok) throw new Error((await response.json()).detail || 'STT failed');
+      return (await response.json()).text;
+    }
+
+    fetch('/api/voice/ping')
+      .then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        status.textContent = 'Server connected. Ready.';
+      })
+      .catch(error => {
+        status.textContent = `Voice server unreachable at ${location.origin} (${error.message}). Start it with: py -3 -m uvicorn app:app --reload`;
+      });
+
+    button.addEventListener('click', async () => {
+      if (recorder?.state === 'recording') {
+        button.disabled = true;
+        recorder.stop();
+        return;
+      }
+      try {
+        currentStep = 'microphone permission';
+        stream = await navigator.mediaDevices.getUserMedia({audio: true});
+        chunks = [];
+        recorder = new MediaRecorder(stream);
+        recorder.ondataavailable = event => chunks.push(event.data);
+        recorder.onstop = async () => {
+          stream.getTracks().forEach(track => track.stop());
+          try {
+            currentStep = 'STT request';
+            setBusy('Transcribing…');
+            const text = await transcribe(new Blob(chunks, {type: recorder.mimeType || 'audio/webm'}));
+            transcript.textContent = text;
+            setBusy('Playing the response…');
+            await speak(text);
+            status.textContent = 'Done. Record another message whenever you are ready.';
+          } catch (error) {
+            status.textContent = `Failed during ${currentStep}: ${error.message}. Check that this page is open from the running PayTime server at ${location.origin}.`;
+          } finally {
+            button.disabled = false;
+            button.textContent = 'Start recording';
+          }
+        };
+        recorder.start();
+        button.textContent = 'Stop recording';
+        status.textContent = 'Recording… speak now, then press Stop recording.';
+      } catch (error) {
+        status.textContent = `Microphone access failed: ${error.message}. Open this page from http://127.0.0.1:8000/api/voice/test and allow microphone access.`;
+      }
+    });
+  </script>
+</body>
+</html>

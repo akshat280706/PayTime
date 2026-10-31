@@ -7,3 +7,7 @@
    `python voice/sarvam.py --audio path/to/recording.webm`.
 
 The script saves generated audio under `voice/cache/`, which is intentionally ignored by Git.
+
+`synthesize()` accepts PayTime contact language codes (`hi`, `mr`, `ta`, or `en`).
+It converts them to Sarvam's BCP-47 codes internally and uses the female `simran`
+Bulbul v3 voice by default.
