@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import os
 from pathlib import Path
 
@@ -20,6 +21,7 @@ LANGUAGE_CODES = {
     "ta": "ta-IN",
 }
 DEFAULT_SPEAKER = "simran"  # Female Bulbul v3 voice; works across supported languages.
+CACHE_DIR = ROOT / "voice" / "cache"
 
 
 def sarvam_language_code(language: str) -> str:
@@ -40,15 +42,26 @@ def get_client() -> SarvamAI:
 
 
 def synthesize(text: str, language: str = "hi") -> bytes:
-    """Turn text into WAV audio bytes using Sarvam Bulbul."""
+    """Turn text into WAV audio bytes, reusing cached audio to conserve credits."""
+    language_code = sarvam_language_code(language)
+    cache_key = hashlib.sha256(
+        f"bulbul:v3\0{DEFAULT_SPEAKER}\0{language_code}\0{text}".encode("utf-8")
+    ).hexdigest()
+    cache_path = CACHE_DIR / f"{cache_key}.wav"
+    if cache_path.exists():
+        return cache_path.read_bytes()
+
     response = get_client().text_to_speech.convert(
         text=text,
-        language_code=sarvam_language_code(language),
+        language_code=language_code,
         model="bulbul:v3",
         speaker=DEFAULT_SPEAKER,
         output_audio_codec="wav",
     )
-    return base64.b64decode(response.audios[0])
+    audio = base64.b64decode(response.audios[0])
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path.write_bytes(audio)
+    return audio
 
 
 def transcribe(audio_path: Path) -> str:

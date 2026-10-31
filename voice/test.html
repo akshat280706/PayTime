@@ -3,38 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PayTime Voice Check</title>
+  <title>PayTime Voice Demo</title>
   <style>
     body { background: #101827; color: #f8fafc; font: 18px/1.5 system-ui, sans-serif; margin: 0; }
-    main { max-width: 680px; margin: 8vh auto; padding: 32px; }
+    main { max-width: 760px; margin: 6vh auto; padding: 32px; }
     button { background: #22c55e; border: 0; border-radius: 10px; color: #052e16; cursor: pointer; font: inherit; font-weight: 700; padding: 14px 20px; }
     button[disabled] { cursor: wait; opacity: .55; }
     #status { color: #a5f3fc; min-height: 1.5em; }
-    #transcript { background: #1e293b; border-radius: 10px; min-height: 56px; padding: 16px; white-space: pre-wrap; }
+    #transcript, #agentReply, #details { background: #1e293b; border-radius: 10px; min-height: 42px; padding: 16px; white-space: pre-wrap; }
     .hint { color: #cbd5e1; font-size: .9rem; }
+    select { background: #1e293b; color: #fff; font: inherit; padding: 8px; border-radius: 8px; }
+    .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
   <main>
-    <h1>PayTime voice check</h1>
-    <p>Record a short Hindi, Hinglish, or English message. PayTime will transcribe it, then read the result back.</p>
-    <button id="recordButton" type="button">Start recording</button>
+    <h1>PayTime voice demo</h1>
+    <p>Speak the merchant’s request, then take the debtor’s side in the browser call. Agent replies are spoken aloud.</p>
+    <p class="row"><label for="language">Debtor language</label>
+      <select id="language"><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="ta">Tamil</option></select>
+    </p>
+    <button id="recordButton" type="button">Record merchant request</button>
     <p id="status" aria-live="polite">Ready.</p>
-    <p class="hint">Transcript</p>
+    <p class="hint">Latest transcript</p>
     <div id="transcript">—</div>
+    <p class="hint">Agent says</p>
+    <div id="agentReply">The agent reply will appear here.</div>
+    <p class="hint">Intake / call status</p>
+    <div id="details">No call started.</div>
   </main>
   <script>
     const button = document.querySelector('#recordButton');
     const status = document.querySelector('#status');
     const transcript = document.querySelector('#transcript');
+    const agentReply = document.querySelector('#agentReply');
+    const details = document.querySelector('#details');
+    const language = document.querySelector('#language');
     let recorder;
     let stream;
     let chunks = [];
     let currentStep = 'microphone';
+    let activeDebtId = null;
+    let isRecording = false;
 
     function setBusy(message) {
       button.disabled = true;
       status.textContent = message;
+    }
+
+    async function requestJson(url, body) {
+      const response = await fetch(url, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || `${url} failed (${response.status})`);
+      return data;
     }
 
     async function speak(text) {
@@ -42,7 +65,7 @@
       const response = await fetch('/api/voice/tts', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({text: `I heard: ${text}`, language: 'hi'}),
+        body: JSON.stringify({text, language: language.value}),
       });
       if (!response.ok) throw new Error((await response.json()).detail || 'TTS failed');
       const source = URL.createObjectURL(await response.blob());
@@ -60,6 +83,50 @@
       return (await response.json()).text;
     }
 
+    async function handleMerchantRequest(text) {
+      currentStep = 'agent intake';
+      const result = await requestJson('/api/agent/intake', {text});
+      const debtId = result.debt_id || result.debt?.id;
+      if (!debtId) {
+        const candidates = (result.candidates || []).map(item => `${item.name} (${Math.round(item.score * 100)}%)`).join(', ');
+        details.textContent = candidates
+          ? `Could not confidently match a debtor. Candidates: ${candidates}. Try saying the name and amount more clearly.`
+          : 'Could not identify a debtor and amount. Try: “Ramesh ko 850 ka reminder bhejo”.';
+        status.textContent = 'Intake needs clarification. Record the request again with a clearer name and amount.';
+        return;
+      }
+      activeDebtId = debtId;
+      details.textContent = `${result.existing ? 'Existing debt' : 'Debt created'} · ID ${activeDebtId} · ₹${result.amount ?? result.debt?.amount ?? ''}`;
+      currentStep = 'starting agent call';
+      const call = await requestJson('/api/agent/start_call', {debt_id: activeDebtId});
+      agentReply.textContent = call.reply_text;
+      await speak(call.reply_text);
+      status.textContent = 'Agent is speaking to the debtor. Record the debtor’s reply next.';
+      button.textContent = 'Record debtor reply';
+    }
+
+    async function handleDebtorReply(text) {
+      currentStep = 'agent conversation';
+      const result = await requestJson('/api/agent/turn', {debt_id: activeDebtId, utterance: text});
+      agentReply.textContent = result.reply_text;
+      const outcome = result.outcome || {};
+      const statusText = outcome.status ? ` · status: ${outcome.status}` : '';
+      details.textContent = `Debt ID ${activeDebtId} · intent: ${result.intent || 'unknown'}${statusText}`;
+      await speak(result.reply_text);
+      status.textContent = outcome.needs_merchant
+        ? 'The agent flagged this for the merchant. The browser call can end here.'
+        : 'Agent replied. Record another debtor reply, or refresh to start a new demo.';
+    }
+
+    async function processRecording(blob) {
+      setBusy('Transcribing…');
+      const text = await transcribe(blob);
+      transcript.textContent = text || '(no speech recognized)';
+      if (!text.trim()) throw new Error('No speech was recognized. Please try again.');
+      if (activeDebtId === null) await handleMerchantRequest(text);
+      else await handleDebtorReply(text);
+    }
+
     fetch('/api/voice/ping')
       .then(response => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -70,8 +137,9 @@
       });
 
     button.addEventListener('click', async () => {
-      if (recorder?.state === 'recording') {
+      if (isRecording && recorder?.state === 'recording') {
         button.disabled = true;
+        isRecording = false;
         recorder.stop();
         return;
       }
@@ -84,13 +152,7 @@
         recorder.onstop = async () => {
           stream.getTracks().forEach(track => track.stop());
           try {
-            currentStep = 'STT request';
-            setBusy('Transcribing…');
-            const text = await transcribe(new Blob(chunks, {type: recorder.mimeType || 'audio/webm'}));
-            transcript.textContent = text;
-            setBusy('Playing the response…');
-            await speak(text);
-            status.textContent = 'Done. Record another message whenever you are ready.';
+            await processRecording(new Blob(chunks, {type: recorder.mimeType || 'audio/webm'}));
           } catch (error) {
             status.textContent = `Failed during ${currentStep}: ${error.message}. Check that this page is open from the running PayTime server at ${location.origin}.`;
           } finally {
@@ -99,6 +161,7 @@
           }
         };
         recorder.start();
+        isRecording = true;
         button.textContent = 'Stop recording';
         status.textContent = 'Recording… speak now, then press Stop recording.';
       } catch (error) {
