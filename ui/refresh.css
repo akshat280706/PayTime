@@ -92,6 +92,7 @@ body #app,
 .ptt-heard{max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#4d5a50;margin-right:8px}
 
 /* Split view: role switch, merchant live-call strip, phone-styled customer view */
+.role-switch[hidden]{display:none}
 .role-switch{display:inline-flex;border-radius:999px;background:#e7e5dc;padding:3px}
 .role-switch button{border:0;background:transparent;padding:7px 15px;border-radius:999px;font:700 12px 'IBM Plex Sans',sans-serif;color:#6b6f66;cursor:pointer}
 .role-switch button.on{background:#254d3e;color:#fff}
