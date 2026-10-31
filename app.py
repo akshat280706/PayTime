@@ -1,8 +1,9 @@
+import hmac
 import os
 from contextlib import closing
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +19,8 @@ from voice.routes import router as voice_router
 from verify.routes import router as verify_router
 
 ROOT = Path(__file__).resolve().parent
+PROTECTED = ("/api/ui/", "/api/verify/", "/api/agent/", "/api/voice/")
+OPEN_PATHS = {"/api/agent/ping", "/api/agent/health", "/api/voice/ping", "/api/voice/test"}
 app = FastAPI(title="PayTime")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 init_auth()
@@ -25,8 +28,10 @@ init_auth()
 
 @app.middleware("http")
 async def merchant_scope(request: Request, call_next):
-    """The merchant UI and verification routes need a session and run against that merchant's database."""
-    if request.url.path.startswith(("/api/ui/", "/api/verify/")):
+    """Everything that mutates data or spends Sarvam credits needs a session; only liveness probes and the voice test
+    page are open. UI and verification routes run against the signed-in merchant's database."""
+    path = request.url.path
+    if path.startswith(PROTECTED) and path not in OPEN_PATHS:
         identity = get_identity(request)
         if not identity:
             return JSONResponse({"detail": "Please sign in"}, status_code=401)
@@ -53,9 +58,15 @@ class DemoPayment(BaseModel):
 
 
 @app.post("/api/demo/payment", include_in_schema=False)
-def demo_payment(body: DemoPayment):
+def demo_payment(body: DemoPayment, x_demo_token: str | None = Header(default=None)):
     """Stands in for Paytm's payment webhook: drops a successful payment for this debt into the feed.
-    No auth on purpose (reachable from a phone on the LAN); remove before anything real uses this app."""
+    Anyone who can reach this route could settle any debt, so it needs the DEMO_TOKEN env var, sent as the
+    X-Demo-Token header. With DEMO_TOKEN unset the route is off."""
+    token = os.getenv("DEMO_TOKEN")
+    if not token:
+        raise HTTPException(403, "Demo payments are off: set DEMO_TOKEN")
+    if not x_demo_token or not hmac.compare_digest(x_demo_token, token):
+        raise HTTPException(403, "Bad demo token")
     with closing(get_db()) as db:
         try:
             return add_payment(db, body.debt_id)
@@ -68,4 +79,4 @@ app.mount("/ui", StaticFiles(directory=ROOT / "ui"), name="ui")  # after the rou
 
 if __name__ == "__main__":  # python app.py -> reachable from other machines on the LAN
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))  # hosts (Render sets PORT=10000) set PORT

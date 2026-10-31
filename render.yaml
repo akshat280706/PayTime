@@ -1,0 +1,18 @@
+# Render Blueprint: New + > Blueprint, point it at this repo. Render ignores a Procfile, so the start command lives here.
+services:
+  - type: web
+    name: paytime
+    runtime: python            # Python version comes from .python-version (3.13); Render's own default is newer
+    plan: free                 # free sleeps after 15 idle minutes and loses in-memory call state: use a paid plan on demo day
+    region: singapore          # closest Render region to India
+    buildCommand: pip install -r requirements.txt
+    startCommand: python seed.py && uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/agent/ping
+    autoDeployTrigger: commit
+    envVars:
+      - key: SARVAM_API_KEY
+        sync: false            # asked for once, when the Blueprint is created
+      - key: DEMO_TOKEN
+        generateValue: true    # random; read it in the dashboard to call /api/demo/payment
+      - key: PAYTIME_HTTPS
+        value: "1"             # marks the session cookie Secure (Render terminates TLS)
