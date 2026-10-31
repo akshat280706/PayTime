@@ -44,6 +44,27 @@ try:
 except PermissionError:
     pass
 assert policy.next_action({"id": 1, "status": "opted_out", "stage": 0, "next_action_at": None})["action"] == "wait"
+# phone thread: earlier contacts from contact_log, then the call in progress; active calls newest first
+th = conversation.thread(2)                      # debt 2 has seeded history and no call yet
+assert not th["active"] and [m["role"] for m in th["messages"]][:3] == ["note", "agent", "customer"], th
+assert all(not m["current"] for m in th["messages"])
+conversation.CALLS.clear(); conversation.CALL_META.clear()
+conversation.start_call(2)
+th = conversation.thread(2)
+assert th["active"] and th["messages"][-1]["current"] and th["messages"][-1]["role"] == "agent"
+assert sum(not m["current"] for m in th["messages"]) == 5, th                # the seeded history is still all there
+_orig_classify = conversation.classify
+conversation.classify = lambda u, c=None: {"intent": "unclear", "promised_date": None}
+conversation.turn(2, "haan boliye")
+th2 = conversation.thread(2)
+assert [m["role"] for m in th2["messages"] if m["current"]] == ["agent", "customer", "agent"], th2   # no duplicates from the log
+assert th2["messages"][-2]["text"] == "haan boliye"
+conversation.start_call(3)
+assert {c["debt_id"] for c in conversation.active_calls()} == {2, 3}
+assert conversation._parse_transcript("Agent: a. Priya: b", "Priya") == [("agent", "a."), ("customer", "b")]
+conversation.classify = _orig_classify
+conversation.CALLS.clear(); conversation.CALL_META.clear()
+
 # "I paid": the ledger decides. certain/high settles, ambiguous goes to the merchant, no match asks for a screenshot
 import sqlite3
 from datetime import datetime
