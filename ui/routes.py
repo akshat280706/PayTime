@@ -81,7 +81,7 @@ class NewContact(BaseModel):
 @router.post('/contacts')
 def add_contact(payload:NewContact):
     if not payload.name.strip():raise HTTPException(422,'Customer name is required')
-    if payload.language not in ('hi','mr','ta','en'):raise HTTPException(422,'Unsupported language')
+    if payload.language not in ('hi','en'):raise HTTPException(422,'Unsupported language')
     with connect() as db:
         with db:
             cur=db.execute('INSERT INTO contacts(name,phone,language) VALUES (?,?,?)',(payload.name.strip()[:90],payload.phone.strip()[:30],payload.language))

@@ -13,12 +13,12 @@ for t in ("contacts", "debts", "contact_log", "promises", "transactions"):
     conn.execute(f"DROP TABLE IF EXISTS {t}")
 conn.executescript(open("schema.sql").read())
 
-names = [
+names = [  # hi / en only. English speakers: Priya (debt 2, the "certain" take), Lakshmi (debt 3, the no-match take), Kavitha, Arjun
     ("Ramesh Kumar", "hi"), ("Sunita Devi", "hi"), ("Amit Sharma", "hi"),
-    ("Priya Patil", "mr"), ("Sachin Jadhav", "mr"), ("Anita Deshmukh", "mr"),
-    ("Vijay Shinde", "mr"), ("Lakshmi Iyer", "ta"), ("Murugan Selvam", "ta"),
-    ("Kavitha Rajan", "ta"), ("Senthil Kumar", "ta"), ("Pooja Verma", "hi"),
-    ("Rajesh Gupta", "hi"), ("Meena Kulkarni", "mr"), ("Arjun Nair", "ta"),
+    ("Priya Patil", "en"), ("Sachin Jadhav", "hi"), ("Anita Deshmukh", "hi"),
+    ("Vijay Shinde", "hi"), ("Lakshmi Iyer", "en"), ("Murugan Selvam", "hi"),
+    ("Kavitha Rajan", "en"), ("Senthil Kumar", "hi"), ("Pooja Verma", "hi"),
+    ("Rajesh Gupta", "hi"), ("Meena Kulkarni", "hi"), ("Arjun Nair", "en"),
 ]
 for i, (n, lang) in enumerate(names, 1):
     handle = None if i == 1 else n.split()[0].lower() + "@paytm"  # Ramesh (debt 1): no payment seen yet, handle unknown

@@ -45,11 +45,6 @@ def to_latin(word):
     return sanscript.transliterate(word, sanscript.DEVANAGARI, sanscript.ITRANS).lower()
 
 
-def detect_language(text):
-    """Tamil script -> 'ta', anything else 'hi'. ponytail: Devanagari can't tell Hindi from Marathi; the caller can pass a language."""
-    return "ta" if re.search(r"[\u0B80-\u0BFF]", text) else "hi"
-
-
 def _spoken_name(raw, latin):
     """Title-cased Latin name from the spoken words; Devanagari is transliterated (dropping ITRANS's trailing schwa)."""
     out = []

@@ -65,6 +65,29 @@ assert conversation._parse_transcript("Agent: a. Priya: b", "Priya") == [("agent
 conversation.classify = _orig_classify
 conversation.CALLS.clear(); conversation.CALL_META.clear()
 
+# English end to end: opening, no-key canned fallback and model-failure fallback all stay English for an 'en' contact
+import re as _re
+from agent.state import create_debt
+dev = _re.compile(r"[\u0900-\u097F]")
+assert set(conversation.CANNED) == set(conversation.OPENING) == {"hi", "en"}
+assert set(conversation.CANNED["hi"]) == set(conversation.CANNED["en"])       # every Hindi line has an English twin
+eid = create_debt(10, 500)["id"]                                               # Kavitha Rajan, English
+opening = conversation.start_call(eid)
+assert opening.startswith("Hello, this is an automated reminder call") and not dev.search(opening), opening
+assert conversation.thread(eid)["language"] == "en"
+_fallback, _complete, _classify = conversation.llm.FALLBACK, conversation.llm.complete, conversation.classify
+conversation.llm.FALLBACK = True                                               # no key: keyword intents + canned replies
+t = conversation.turn(eid, "I will pay tomorrow")
+assert t["intent"] == "promise_to_pay" and t["language"] == "en" and not dev.search(t["reply_text"]), t
+conversation.llm.FALLBACK = False
+def _down(*a, **k): raise RuntimeError("model down")
+conversation.llm.complete = _down                                              # the model fails mid-call
+conversation.classify = lambda u, c=None: {"intent": "dispute_amount", "promised_date": None}
+t = conversation.turn(eid, "that is the wrong amount")
+assert not dev.search(t["reply_text"]) and "owner" in t["reply_text"], t
+conversation.llm.complete, conversation.llm.FALLBACK, conversation.classify = _complete, _fallback, _classify
+conversation.CALLS.clear(); conversation.CALL_META.clear()
+
 # "I paid": the ledger decides. certain/high settles, ambiguous goes to the merchant, no match asks for a screenshot
 import sqlite3
 from datetime import datetime
@@ -78,7 +101,7 @@ for debt in (2, 3, 5):
     conversation.start_call(debt)
 t = conversation.turn(2, "paisa bhej diya hai")
 assert t["outcome"]["status"] == "settled" and t["outcome"]["verification"]["confidence"] == "certain", t
-assert t["outcome"]["next_action_at"] is None and "1200" in t["reply_text"] and t["language"] == "mr"
+assert t["outcome"]["next_action_at"] is None and "1200" in t["reply_text"] and t["language"] == "en"            # Priya is an English speaker in the seed
 again = conversation.turn(2, "paisa bhej diya hai")                       # a repeat claim on a settled debt
 assert again["reply_text"] == t["reply_text"] and "verification" not in again["outcome"], again
 t = conversation.turn(3, "paisa bhej diya hai")
@@ -87,7 +110,7 @@ assert t["outcome"]["verification"] == {"verified": False, "confidence": "ambigu
 t = conversation.turn(5, "paisa bhej diya hai")
 assert t["outcome"]["status"] == "open" and t["outcome"]["verification"]["verified"] is False, t
 assert t["outcome"]["trigger_verification"] is True                        # screenshot path still open
-assert routes.start_call(routes.CallIn(debt_id=1 + 3))["language"] in ("hi", "mr", "ta")
+assert routes.start_call(routes.CallIn(debt_id=1 + 3))["language"] in ("hi", "en")
 
 # pending claim: a claim that found nothing is re-checked on the customer's next turn, whatever the classifier says
 t = conversation.turn(5, "paisa bhej diya hai")                              # debt 5 (150): feed empty
@@ -120,8 +143,10 @@ assert made["created"] and made["new_contact"] and made["debt"]["amount"] == 500
 assert db.execute("SELECT name, phone, language FROM contacts WHERE id=?", (made["contact_id"],)).fetchone() == ("Vikram", None, "hi")
 again = routes.intake(routes.IntakeIn(text="Vikram ko 500 ka reminder bhejo"))
 assert again["existing"] and not again.get("new_contact") and again["debt_id"] == made["debt"]["id"], again  # no second Vikram
-assert routes.intake(routes.IntakeIn(text="வினோத் ko 200"))["created"] is True
-assert db.execute("SELECT language FROM contacts ORDER BY id DESC LIMIT 1").fetchone()[0] == "ta"  # Tamil script -> ta
+assert routes.intake(routes.IntakeIn(text="Deepak ko 200 ka reminder", language="en"))["created"] is True
+assert db.execute("SELECT language FROM contacts ORDER BY id DESC LIMIT 1").fetchone()[0] == "en"   # the caller says the debtor speaks English
+assert routes.intake(routes.IntakeIn(text="Karan ko 300 ka reminder", language="ta"))["created"] is True
+assert db.execute("SELECT language FROM contacts ORDER BY id DESC LIMIT 1").fetchone()[0] == "hi"   # unsupported language -> hi
 conversation.start_call(made["debt"]["id"])
 assert conversation.start_call(made["debt"]["id"]).count("Vikram") == 1     # a new contact can be called straight away
 
