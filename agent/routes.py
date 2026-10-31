@@ -3,6 +3,7 @@
 #   POST /start_call      {debt_id}            -> {reply_text}
 #   POST /turn            {debt_id, utterance} -> {reply_text, intent, outcome}
 #   GET  /next_action/{debt_id}                -> {action, reason}
+#   GET  /health                               -> {llm_live, model, last_error}
 #
 # /intake -> {created, debt?, contact_id, amount, confidence, candidates, debt_id}; created=false (no debt made)
 #            when the name is ambiguous or no amount was found (pick from candidates and retry), or when that
@@ -14,7 +15,7 @@ from contextlib import closing
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from agent import conversation, policy
+from agent import conversation, llm, policy
 from agent.intake import parse_intake
 from agent.state import create_debt
 from db import get_db
@@ -38,6 +39,12 @@ class TurnIn(BaseModel):
 @router.get("/ping")
 def ping():
     return {"ok": True}
+
+
+@router.get("/health")
+def health():
+    llm.preflight()  # first call makes one tiny live request; later calls are free
+    return {"llm_live": not llm.DEGRADED, "model": llm.MODEL, "last_error": llm.LAST_ERROR}
 
 
 @router.post("/intake")

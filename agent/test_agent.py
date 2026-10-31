@@ -44,4 +44,32 @@ try:
 except PermissionError:
     pass
 assert policy.next_action({"id": 1, "status": "opted_out", "stage": 0, "next_action_at": None})["action"] == "wait"
+# a reply cut off by max_tokens is trimmed to its last full sentence, or rejected if it has none
+import requests
+from agent import llm
+class FakeResp:
+    ok, status_code = True, 200
+    def __init__(self, text): self.text = text
+    def json(self): return {"choices": [{"message": {"content": self.text}, "finish_reason": "length"}], "usage": {}}
+real_post = requests.post
+os.environ.setdefault("SARVAM_API_KEY", "x")
+requests.post = lambda *a, **k: FakeResp("ठीक है, समझ गई। मैं इसे नोट कर लूँगी, कृपया ")
+assert llm._call("s", []) == "ठीक है, समझ गई।"
+requests.post = lambda *a, **k: FakeResp("कृपया ")
+try:
+    llm._call("s", [])
+    raise SystemExit("expected ValueError")
+except ValueError:
+    pass
+requests.post = real_post
+
+# preflight: a failing model flips DEGRADED and /health, a later good call clears it
+from agent import llm, routes
+llm.FALLBACK, llm._checked = False, False
+def boom(*a, **k): raise RuntimeError("404 model gone")
+llm._call = boom
+h = routes.health()
+assert llm.DEGRADED and h == {"llm_live": False, "model": llm.MODEL, "last_error": "RuntimeError: 404 model gone"}, h
+llm._call = lambda *a, **k: "ok"
+assert llm.complete("s", [{"role": "user", "content": "x"}]) == "ok" and routes.health()["llm_live"] is True
 print("ok")

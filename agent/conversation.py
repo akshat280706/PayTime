@@ -33,12 +33,12 @@ CANNED = {
         "ask0": "यह {a} रुपये के बकाया की एक छोटी याद दिलाने वाली कॉल है। जब आपको सुविधा हो, कृपया भुगतान कर दीजिए।",
         "ask1": "आपके {a} रुपये {d} दिन से बकाया हैं। कृपया बताइए, भुगतान कब तक हो पाएगा?",
         "ask2": "आपके {a} रुपये अब भी बकाया हैं। {m} के मालिक खुद आपसे बात करेंगे। धन्यवाद।",
-        "promise": "ठीक है, {date} तक भुगतान की बात नोट कर ली है। धन्यवाद!",
-        "claims_paid": "धन्यवाद। क्या आप भुगतान का स्क्रीनशॉट भेज सकते हैं? हम जाँच कर लेंगे।",
-        "dispute_amount": "समझ गए। यह बात मालिक तक पहुँचा दी जाएगी, वे आपसे रकम पर बात करेंगे। धन्यवाद।",
+        "promise": "ठीक है, {date} तक भुगतान की बात मैंने नोट कर ली है। धन्यवाद!",
+        "claims_paid": "धन्यवाद। क्या आप भुगतान का स्क्रीनशॉट भेज सकते हैं? मैं जाँच कर लूँगी।",
+        "dispute_amount": "मैं समझ गई। यह बात मालिक तक पहुँचा दी जाएगी, वे आपसे रकम पर बात करेंगे। धन्यवाद।",
         "refuse": "ठीक है, यह बात मालिक को बता दी जाएगी। धन्यवाद।",
         "wrong_number": "माफ़ कीजिए, गलत नंबर लग गया। आपका दिन शुभ हो।",
-        "callback_later": "ठीक है, हम बाद में कॉल करेंगे। धन्यवाद।",
+        "callback_later": "ठीक है, मैं बाद में फिर से कॉल करूँगी। धन्यवाद।",
         "unclear": "माफ़ कीजिए, क्या आप दोबारा बता सकते हैं?",
     },
     "mr": {
@@ -105,6 +105,7 @@ def build_system_prompt(ctx, intent=None, promised_date=None):
 Debtor: {ctx['name']}. Amount owed: Rs {_fmt_amount(ctx['amount'])}. Days overdue: {ctx['days_overdue']}.
 Current stage: {ctx['stage']}. Tone: {TONE[min(ctx['stage'], 2)]}
 Speak {LANGS[ctx['lang']]} in its native script (it goes to a text-to-speech engine). Keep every reply under 40 words, this is a phone call.
+You are a woman. In Hindi ALWAYS use feminine verb forms for yourself, consistently through the whole call: मैं बोल रही हूँ, मैं कर लूँगी, मैं समझ गई, never रहा हूँ / लूँगा / गया.
 
 HARD RULES (never break them):
 1. The call's first sentence is always a disclosure that this is an automated reminder on behalf of {MERCHANT}, then you confirm who you are speaking to. That opening has already been spoken.
