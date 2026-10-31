@@ -51,9 +51,14 @@ def check_feed(debt_id: int):
         debt=db.execute('SELECT status FROM debts WHERE id=?',(debt_id,)).fetchone()
         if not debt: raise HTTPException(404,'Collection not found')
         if debt['status'] in ('settled','opted_out'): raise HTTPException(409,'Collection already closed')
-        txn=match_feed_transaction(db,debt_id=debt_id)
-        if not txn:
+        match=match_feed_transaction(db,debt_id=debt_id)
+        if not match:
             return {'verified':False,'message':'Payment unverified: no matching successful ledger transaction yet. Do not accuse the customer; recheck later.'}
-        try: settle_debt(db,debt_id,txn)
+        txn=match['transaction']
+        if match['confidence']=='ambiguous':
+            return {'verified':False,'needs_review':True,'confidence':'ambiguous','candidate':txn,
+                    'message':'A transaction for this amount exists but cannot be tied to this customer. Merchant review needed; not settled.'}
+        try: learned=settle_debt(db,debt_id,txn)
         except ValueError as ex: raise HTTPException(409,str(ex))
-        return {'verified':True,'amount':txn['amount'],'transaction_ref':txn['ref'],'debt_id':debt_id,'stopped':True}
+        return {'verified':True,'amount':txn['amount'],'transaction_ref':txn['ref'],'debt_id':debt_id,'stopped':True,
+                'confidence':match['confidence'],'payer_handle_learned':learned}

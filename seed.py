@@ -20,7 +20,7 @@ names = [
     ("Rajesh Gupta", "hi"), ("Meena Kulkarni", "mr"), ("Arjun Nair", "ta"),
 ]
 for i, (n, lang) in enumerate(names, 1):
-    handle = n.split()[0].lower() + "@paytm"
+    handle = None if i == 1 else n.split()[0].lower() + "@paytm"  # Ramesh (debt 1): no payment seen yet, handle unknown
     conn.execute("INSERT INTO contacts VALUES (?,?,?,?,?)",
                  (i, n, f"+91 9{random.randint(100000000, 999999999)}", lang, handle))
 
@@ -56,8 +56,10 @@ conn.execute("INSERT INTO promises (debt_id, promised_date, made_at) VALUES (2,?
 amounts = [850, 420, 975, 1340, 60, 2510, 180, 730, 1999, 275, 640, 3100]
 for i, amt in enumerate(amounts, 1):
     ts = now - timedelta(minutes=10) if i == 1 else now - timedelta(hours=random.randint(1, 72))
+    payer = random.choice(names)[0].split()[0].lower() + "@paytm"
+    if i == 1:
+        payer = "ramesh@paytm"  # the demo payment is Ramesh's; the match should teach us his handle
     conn.execute("INSERT INTO transactions VALUES (?,?,?,?,?,?)",
-                 (i, amt, iso(ts), "".join(random.choices("0123456789", k=12)),
-                  random.choice(names)[0].split()[0].lower() + "@paytm", "SUCCESS"))
+                 (i, amt, iso(ts), "".join(random.choices("0123456789", k=12)), payer, "SUCCESS"))
 
 conn.commit()

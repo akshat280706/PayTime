@@ -43,23 +43,39 @@ def match_transaction(conn: sqlite3.Connection, *, debt_id: int, amount: float, 
 
 
 def match_feed_transaction(conn: sqlite3.Connection, *, debt_id: int):
-    """Feed-only check (no screenshot, so no reference): a successful, unused ledger entry with exactly the debt's
-    amount, dated no earlier than a day before the debt was created. Returns the transaction or None.
-    ponytail: amount+window only; two debts with the same amount can race for one payment, enforce payer_handle
-    once the seed's demo transaction carries the contact's handle."""
-    debt = conn.execute("SELECT amount, status, created_at FROM debts WHERE id=?", (debt_id,)).fetchone()
+    """Feed-only check (no screenshot, so no reference). Confidence ladder over successful, unused ledger entries
+    with exactly the debt's amount:
+      certain    contact's payer_handle is known and matches the payer, inside the time window
+      high       payer_handle unknown on either side, inside the window (one candidate only)
+      ambiguous  outside the window, or several equally good candidates: NOT settled, goes to merchant review
+    A known handle that differs from the payer is someone else's payment and is skipped.
+    Window = not earlier than a day before the debt was created.
+    Returns {'confidence', 'transaction'} or None. Only certain/high may be settled."""
+    debt = conn.execute("SELECT d.amount, d.status, d.created_at, c.payer_handle FROM debts d "
+                        "LEFT JOIN contacts c ON c.id = d.contact_id WHERE d.id=?", (debt_id,)).fetchone()
     if not debt or debt[1] in ('settled', 'opted_out'):
         return None
+    known = (debt[3] or '').strip().lower()
     created = datetime.fromisoformat(debt[2].replace('Z', '+00:00')).replace(tzinfo=None)
+    found = {'certain': [], 'high': [], 'ambiguous': []}
     for txid, txamount, txtime, txref, handle in conn.execute(
             "SELECT id, amount, ts, ref, payer_handle FROM transactions WHERE status='SUCCESS' ORDER BY ts"):
         if round(float(txamount)*100) != round(float(debt[0])*100):
             continue
-        if datetime.fromisoformat(txtime.replace('Z', '+00:00')).replace(tzinfo=None) < created - timedelta(days=1):
-            continue
         if conn.execute("SELECT 1 FROM contact_log WHERE outcome=?", ('verified:'+txref,)).fetchone():
             continue
-        return {'id': txid, 'amount': txamount, 'ts': txtime, 'ref': txref, 'payer_handle': handle}
+        payer = (handle or '').strip().lower()
+        if known and payer and payer != known:
+            continue  # a different, known payer: not evidence for this debt
+        inside = datetime.fromisoformat(txtime.replace('Z', '+00:00')).replace(tzinfo=None) >= created - timedelta(days=1)
+        level = ('certain' if known and payer else 'high') if inside else 'ambiguous'
+        found[level].append({'id': txid, 'amount': txamount, 'ts': txtime, 'ref': txref, 'payer_handle': handle})
+    if found['certain']:
+        return {'confidence': 'certain', 'transaction': found['certain'][0]}
+    if len(found['high']) == 1:
+        return {'confidence': 'high', 'transaction': found['high'][0]}
+    if found['high'] or found['ambiguous']:  # several unknown payers could each be them: let the merchant pick
+        return {'confidence': 'ambiguous', 'transaction': (found['high'] + found['ambiguous'])[0]}
     return None
 
 
@@ -73,4 +89,10 @@ def settle_debt(conn: sqlite3.Connection, debt_id: int, transaction: dict):
         if used:
             raise ValueError('Transaction has already been used')
         conn.execute("UPDATE debts SET status='settled', next_action_at=NULL WHERE id=?",(debt_id,))
+        learned=None
+        owner=conn.execute("SELECT c.id, c.payer_handle FROM debts d JOIN contacts c ON c.id=d.contact_id WHERE d.id=?",(debt_id,)).fetchone()
+        if owner and not (owner[1] or '').strip() and (transaction.get('payer_handle') or '').strip():
+            learned=transaction['payer_handle'].strip()  # the first payment teaches us who this customer pays as
+            conn.execute("UPDATE contacts SET payer_handle=? WHERE id=?",(learned,owner[0]))
         conn.execute('INSERT INTO contact_log (debt_id, ts, channel, stage, transcript, outcome) VALUES (?, ?, ?, ?, ?, ?)',(debt_id,datetime.now().isoformat(timespec='seconds'),'sms',0,f"Verified ledger transaction {transaction['ref']} for ₹{transaction['amount']}. Stop chasing.",'verified:'+transaction['ref']))
+    return learned
