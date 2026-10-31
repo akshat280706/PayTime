@@ -41,3 +41,44 @@ function setAuthMode(mode){authMode=mode;const signup=mode==='signup';$('signup-
 function showAuth(){document.getElementById('auth-layout').classList.add('show');closeDrawer();document.querySelectorAll('.modal').forEach(m=>m.hidden=true);$('overlay').hidden=true}
 function enterWorkspace(m){document.getElementById('auth-layout').classList.remove('show');$('workspace-name').textContent=m.store;$('account-store').textContent=m.store;$('account-name').textContent=m.owner;const initials=m.owner.trim().split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase();document.querySelectorAll('.profile-pic,.top-avatar').forEach(el=>el.textContent=initials||'PT');$('auth-password').value='';load()}
 async function bootAuth(){ $('tab-login').onclick=()=>setAuthMode('login');$('tab-signup').onclick=()=>setAuthMode('signup');$('show-password').onclick=()=>{$('auth-password').type=$('auth-password').type==='password'?'text':'password'};$('auth-form').onsubmit=async ev=>{ev.preventDefault();$('auth-error').textContent='';const btn=$('auth-submit');btn.disabled=true;try{const m=await api('/api/auth/'+(authMode==='signup'?'signup':'login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('auth-email').value,password:$('auth-password').value,name:$('auth-name').value,store:$('auth-store').value})});enterWorkspace(m)}catch(e){$('auth-error').textContent=e.message}finally{btn.disabled=false}};$('demo-login').onclick=async()=>{try{enterWorkspace(await api('/api/auth/demo',{method:'POST'}))}catch(e){$('auth-error').textContent=e.message}};$('logout-button').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST'})}catch(e){}state.debts=[];state.contacts=[];state.logs=[];state.transactions=[];state.summary={};state.selected=null;setAuthMode('login');showAuth()};$('add-contact-toggle').onclick=()=>{$('new-contact-fields').hidden=!$('new-contact-fields').hidden};try{const m=await api('/api/auth/me');enterWorkspace(m)}catch(e){showAuth()}}
+
+
+
+async function verifyAfterCall(debtId, outcome) {
+    if (!outcome?.trigger_verification) return;
+
+    try {
+        const response = await fetch(
+            `/api/verify/check/${debtId}`,
+            { method: "POST" }
+        );
+
+        if (!response.ok) {
+            throw new Error("Verification failed");
+        }
+
+        const result = await response.json();
+
+        if (result.verified && result.stopped) {
+            // Display payment confirmation
+            document.getElementById("celebration-title").textContent =
+                `₹${result.amount} recovered!`;
+
+            document.getElementById(
+                "settlement-celebration"
+            ).hidden = false;
+
+            // Refresh dashboard totals and statuses
+            await load();
+        } else {
+            toast("Payment not yet verified.");
+        }
+
+        if (result.payer_handle_learned) {
+            toast("Customer UPI ID learned successfully!");
+        }
+
+    } catch (error) {
+        toast(error.message, true);
+    }
+}
