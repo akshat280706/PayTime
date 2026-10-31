@@ -86,3 +86,90 @@ def add_contact(payload:NewContact):
         with db:
             cur=db.execute('INSERT INTO contacts(name,phone,language) VALUES (?,?,?)',(payload.name.strip()[:90],payload.phone.strip()[:30],payload.language))
     return {'id':cur.lastrowid,'name':payload.name.strip()}
+
+
+# ---- Manage screen: plain data control for rehearsing (add/edit/delete, land a payment, reset the demo data)
+STATUSES=('open','promised','settled','disputed','opted_out','escalated')
+
+class NewDebt(BaseModel):
+    contact_id:int
+    amount:float
+    days_overdue:int=0
+
+class DebtEdit(BaseModel):
+    amount:float|None=None
+    status:str|None=None
+
+class PaymentFor(BaseModel):
+    debt_id:int
+
+def _forget_calls(debt_ids):
+    from agent import conversation  # in-memory call transcripts for debts that no longer exist or were reset
+    for i in debt_ids: conversation.CALLS.pop(i,None);conversation.CALL_META.pop(i,None)
+
+@router.post('/manage/debts')
+def manage_add_debt(p:NewDebt):
+    if not (0<p.amount<=10000000):raise HTTPException(422,'Enter a valid amount.')
+    if not (0<=p.days_overdue<=3650):raise HTTPException(422,'Days overdue must be 0 to 3650.')
+    now=datetime.now(); due=now-timedelta(days=p.days_overdue)
+    with connect() as db:
+        if not db.execute('SELECT 1 FROM contacts WHERE id=?',(p.contact_id,)).fetchone():raise HTTPException(404,'Customer not found')
+        with db:
+            cur=db.execute('INSERT INTO debts (contact_id,amount,created_at,due_date,stage,status,next_action_at) VALUES (?,?,?,?,0,"open",?)',
+                           (p.contact_id,p.amount,(due-timedelta(days=7)).isoformat(timespec='seconds'),due.isoformat(timespec='seconds'),now.isoformat(timespec='seconds')))
+    return {'debt_id':cur.lastrowid}
+
+@router.patch('/manage/debts/{debt_id}')
+def manage_edit_debt(debt_id:int,p:DebtEdit):
+    if p.amount is not None and not (0<p.amount<=10000000):raise HTTPException(422,'Enter a valid amount.')
+    if p.status is not None and p.status not in STATUSES:raise HTTPException(422,'Unknown status.')
+    with connect() as db:
+        if not db.execute('SELECT 1 FROM debts WHERE id=?',(debt_id,)).fetchone():raise HTTPException(404,'Debt not found')
+        with db:
+            if p.amount is not None:db.execute('UPDATE debts SET amount=? WHERE id=?',(p.amount,debt_id))
+            if p.status is not None:db.execute('UPDATE debts SET status=? WHERE id=?',(p.status,debt_id))
+    return {'debt_id':debt_id}
+
+def _delete_debts(db,ids):
+    for i in ids:
+        db.execute('DELETE FROM contact_log WHERE debt_id=?',(i,))
+        db.execute('DELETE FROM promises WHERE debt_id=?',(i,))
+        db.execute('DELETE FROM debts WHERE id=?',(i,))
+    _forget_calls(ids)
+
+@router.delete('/manage/debts/{debt_id}')
+def manage_delete_debt(debt_id:int):
+    with connect() as db:
+        if not db.execute('SELECT 1 FROM debts WHERE id=?',(debt_id,)).fetchone():raise HTTPException(404,'Debt not found')
+        with db:_delete_debts(db,[debt_id])
+    return {'deleted':debt_id}
+
+@router.delete('/manage/contacts/{contact_id}')
+def manage_delete_contact(contact_id:int):
+    with connect() as db:
+        if not db.execute('SELECT 1 FROM contacts WHERE id=?',(contact_id,)).fetchone():raise HTTPException(404,'Customer not found')
+        with db:
+            ids=[r['id'] for r in db.execute('SELECT id FROM debts WHERE contact_id=?',(contact_id,))]
+            _delete_debts(db,ids)
+            db.execute('DELETE FROM contacts WHERE id=?',(contact_id,))
+    return {'deleted':contact_id,'debts_deleted':len(ids)}
+
+@router.post('/manage/payment')
+def manage_payment(p:PaymentFor):
+    from agent.state import add_payment
+    with connect() as db:
+        try:return add_payment(db,p.debt_id)
+        except LookupError:raise HTTPException(404,'Debt not found')
+
+@router.post('/manage/reset')
+def manage_reset():
+    """Re-run seed.py. Only for the demo workspace, whose database is the shared state.db."""
+    import subprocess,sys
+    from pathlib import Path
+    root=Path(__file__).resolve().parent.parent
+    if CURRENT_DB.get()!=str(root/'state.db'):raise HTTPException(403,'Reset is only available in the demo workspace.')
+    done=subprocess.run([sys.executable,'seed.py'],cwd=root,capture_output=True,text=True,timeout=60)
+    if done.returncode:raise HTTPException(500,'Seed failed: '+done.stderr[-300:])
+    from agent import conversation
+    conversation.CALLS.clear();conversation.CALL_META.clear()
+    return {'summary':done.stdout.strip()}

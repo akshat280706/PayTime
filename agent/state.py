@@ -1,8 +1,32 @@
+import random
 from contextlib import closing
 from datetime import datetime, timedelta
 
 from db import get_db
 from agent.policy import TS, clamp_to_calling_hours
+
+
+def add_payment(db, debt_id):
+    """Stands in for Paytm's payment webhook: a successful transaction for this debt's amount, timestamped now.
+    Payer handle = the contact's, else ramesh@paytm for debt 1, else <first name>@paytm."""
+    row = db.execute("SELECT d.amount, c.name, c.payer_handle FROM debts d JOIN contacts c ON c.id=d.contact_id "
+                     "WHERE d.id=?", (debt_id,)).fetchone()
+    if not row:
+        raise LookupError("Debt not found")
+    handle = row["payer_handle"] or ("ramesh@paytm" if debt_id == 1 else row["name"].split()[0].lower() + "@paytm")
+    ref = "".join(random.choices("0123456789", k=12))
+    db.execute("INSERT INTO transactions (amount, ts, ref, payer_handle, status) VALUES (?,?,?,?,'SUCCESS')",
+               (row["amount"], datetime.now().isoformat(timespec="seconds"), ref, handle))
+    db.commit()
+    return {"transaction_ref": ref, "amount": row["amount"], "payer_handle": handle}
+
+
+def create_contact(name, language="hi"):
+    with closing(get_db()) as db:
+        cur = db.execute("INSERT INTO contacts (name, phone, language, payer_handle) VALUES (?, NULL, ?, NULL)",
+                         (name, language))
+        db.commit()
+        return cur.lastrowid
 
 
 def create_debt(contact_id, amount):

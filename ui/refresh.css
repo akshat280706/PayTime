@@ -69,3 +69,24 @@ body #app,
 .activity-item.verified b{color:#1a5a30;font-size:14px}
 .verify-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .verify-chips span{font-size:10px;font-weight:700;letter-spacing:.4px;padding:4px 9px;border-radius:999px;background:#fff;color:#1f6b3a;border:1px solid #b4d6bd}
+
+/* Call now, Manage screen, push-to-talk */
+.row-actions{white-space:nowrap;text-align:right}
+.call-now{display:inline-flex;align-items:center;gap:6px;margin-right:8px;padding:6px 11px;border-radius:8px;border:1px solid #9ccaa8;background:#e4f1e6;color:#1f6b3a;font:700 11px 'IBM Plex Sans',sans-serif;cursor:pointer}
+.call-now svg{width:13px;height:13px}.call-now:hover{background:#d3e8d7}
+.manage-grid{display:grid;grid-template-columns:1fr 1fr;gap:17px;margin:18px 0}
+.manage-panel{padding:20px 23px;margin-bottom:17px}.manage-grid .manage-panel{margin-bottom:0}
+.manage-panel h3{margin:0 0 4px;font-size:15px}
+.form-control.mini{min-height:34px;padding:6px 9px;width:120px;display:inline-block}
+.manage-actions{white-space:nowrap}.secondary-btn.mini{padding:7px 11px;margin-left:6px;font-size:11px}
+.secondary-btn.danger{background:#f6e3e0;color:#a33327}
+.manage-log{background:#101827;color:#a5f3fc;border-radius:10px;padding:14px 16px;min-height:60px;max-height:260px;overflow:auto;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap}
+.ptt{position:relative;display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;border:0;background:#254d3e;color:#fff;font:700 12px 'IBM Plex Sans',sans-serif;cursor:pointer;user-select:none;touch-action:none;overflow:hidden}
+.ptt svg{width:15px;height:15px}.ptt:hover{background:#2f6150}
+.ptt.recording{background:#d64533;animation:llmblink 1s ease-in-out infinite}
+.ptt.busy,.ptt.arming{background:#8a8f86;cursor:wait}
+.ptt.denied{background:#fff;color:#a33327;box-shadow:inset 0 0 0 2px #d64533}
+.ptt-meter{display:none;width:54px;height:6px;border-radius:3px;background:#ffffff40;overflow:hidden}.ptt.recording .ptt-meter{display:block}
+.ptt-meter i{display:block;height:100%;width:0;background:#fff;transition:width .08s}
+.ptt b{font-variant-numeric:tabular-nums;font-weight:700}
+.ptt-heard{max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#4d5a50;margin-right:8px}

@@ -5,7 +5,9 @@
 #   GET  /next_action/{debt_id}                -> {action, reason}
 #   GET  /health                               -> {llm_live, model, last_error}
 #
-# /intake -> {created, debt?, contact_id, amount, confidence, candidates, debt_id}; created=false (no debt made)
+# /intake {text, language?} -> {created, debt?, contact_id, amount, confidence, candidates, debt_id, new_contact?}
+#            A name nobody close to in the contacts + an amount creates the contact and the debt (new_contact=true).
+#            created=false (no debt made)
 #            when the name is ambiguous or no amount was found (pick from candidates and retry), or when that
 #            contact already has an open/promised debt of the same amount (existing=true, debt = that debt).
 # /turn   outcome -> {status, stage, next_action_at, promised_date, trigger_verification, needs_merchant}
@@ -19,8 +21,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from agent import conversation, llm, policy
-from agent.intake import parse_intake
-from agent.state import create_debt
+from agent.intake import amount_trace, detect_language, parse_intake
+from agent.state import create_contact, create_debt
 from db import get_db
 
 router = APIRouter(prefix="/api/agent")
@@ -28,6 +30,7 @@ router = APIRouter(prefix="/api/agent")
 
 class IntakeIn(BaseModel):
     text: str
+    language: str | None = None  # the debtor's language if the caller knows it; else guessed from the script
 
 
 class CallIn(BaseModel):
@@ -50,9 +53,40 @@ def health():
     return {"llm_live": not llm.DEGRADED, "model": llm.MODEL, "last_error": llm.LAST_ERROR}
 
 
+@router.get("/debts/{debt_id}/thread")
+def debt_thread(debt_id: int):
+    """The phone thread for a debtor: earlier contacts plus the call in progress. Read by the merchant and customer views."""
+    return _call(conversation.thread, debt_id)
+
+
+@router.get("/calls/active")
+def active_calls():
+    return conversation.active_calls()
+
+
+STAGES = ["Gentle", "Firm", "Final"]
+LANGUAGES = {"hi": "Hindi", "mr": "Marathi", "ta": "Tamil"}
+
+
+@router.get("/debts/{debt_id}/card")
+def debt_card(debt_id: int):
+    """Everything the voice modal shows about who is being called."""
+    ctx = _call(conversation.load_context, debt_id)
+    return {"debt_id": debt_id, "name": ctx["name"], "amount": ctx["amount"], "days_overdue": ctx["days_overdue"],
+            "stage": ctx["stage"], "stage_name": STAGES[min(ctx["stage"], 2)], "status": ctx["status"],
+            "language": ctx["lang"], "language_name": LANGUAGES[ctx["lang"]],
+            "upi_known": bool((ctx.get("payer_handle") or "").strip()), "payer_handle": ctx.get("payer_handle")}
+
+
 @router.post("/intake")
 def intake(body: IntakeIn):
     parsed = parse_intake(body.text)
+    t = amount_trace(body.text)  # logged on every intake: when an amount looks wrong, this shows where it went wrong
+    print(f"[intake] raw={t['raw']!r} tokens={t['tokens']} amount={t['amount']}" + "".join(f"\n[intake] {x}" for x in t["steps"]))
+    if parsed["new_name"]:  # nobody close in the contact book: a new debtor
+        contact_id = create_contact(parsed["new_name"], body.language or detect_language(body.text))
+        return {"created": True, "new_contact": True, "debt": create_debt(contact_id, parsed["amount"]),
+                **{**parsed, "contact_id": contact_id}}
     if parsed["contact_id"] is None or parsed["amount"] is None:
         return {"created": False, **parsed}
     if parsed["debt_id"]:  # merchant re-asked about a debt that already exists

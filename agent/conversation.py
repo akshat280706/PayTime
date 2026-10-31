@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from agent import llm
 from agent.intents import classify
-from agent.policy import CLOSED
+from agent.policy import CLOSED, TS
 from agent.state import apply_outcome
 from db import get_db
 from verify.matcher import match_feed_transaction, settle_debt
@@ -18,7 +18,7 @@ TONE = {
 }
 GUIDE = {
     "promise_to_pay": "They promised to pay by {date}. Thank them, repeat the date, close warmly.",
-    "claims_paid": "They say they already paid. Thank them, do not question it, ask them to send a payment screenshot so it can be confirmed.",
+    "claims_paid": "They say they already paid but the payment is not visible yet. Do not question it and do not ask for a screenshot (this is a voice call). Say you cannot see it yet and ask them to tell you once it is done so you can check again.",
     "dispute_amount": "They disagree with the amount. Acknowledge, say the shopkeeper will speak to them about it. Do not argue.",
     "refuse": "They declined. Stay polite, do not pressure, say the shopkeeper will be informed.",
     "callback_later": "They asked for a later call. Agree politely and close.",
@@ -42,6 +42,7 @@ CANNED = {
         "callback_later": "ठीक है, मैं बाद में फिर से कॉल करूँगी। धन्यवाद।",
         "unclear": "माफ़ कीजिए, क्या आप दोबारा बता सकते हैं?",
         "verified": "धन्यवाद, आपका {a} रुपये का भुगतान मिल गया है। अब आपको कोई रिमाइंडर नहीं आएगा।",
+        "pending": "अभी तक भुगतान दिख नहीं रहा। हो जाए तो बता दीजिए, मैं दोबारा जाँच कर लूँगी।",
         "review": "धन्यवाद। मैं अभी इसकी पुष्टि नहीं कर पाई। मालिक इसे देखकर आपसे संपर्क करेंगे।",
     },
     "mr": {
@@ -56,6 +57,7 @@ CANNED = {
         "callback_later": "ठीक आहे, आम्ही नंतर पुन्हा कॉल करू. धन्यवाद.",
         "unclear": "माफ करा, कृपया पुन्हा सांगाल का?",
         "verified": "धन्यवाद, तुमचे {a} रुपयांचे पेमेंट मिळाले आहे. आता तुम्हाला कोणताही रिमाइंडर येणार नाही.",
+        "pending": "अजून पेमेंट दिसत नाही. झाले की सांगा, मी पुन्हा तपासून पाहीन.",
         "review": "धन्यवाद. मला आत्ता याची खात्री करता आली नाही. मालक ते तपासून तुमच्याशी बोलतील.",
     },
     "ta": {
@@ -70,6 +72,7 @@ CANNED = {
         "callback_later": "சரி, பிறகு மீண்டும் அழைக்கிறோம். நன்றி.",
         "unclear": "மன்னிக்கவும், மீண்டும் சொல்ல முடியுமா?",
         "verified": "நன்றி, உங்கள் {a} ரூபாய் பணம் கிடைத்தது. இனி உங்களுக்கு நினைவூட்டல் வராது.",
+        "pending": "இன்னும் பணம் வரவில்லை. செலுத்திய பிறகு சொல்லுங்கள், நான் மீண்டும் சரிபார்க்கிறேன்.",
         "review": "நன்றி. என்னால் இப்போது உறுதிப்படுத்த முடியவில்லை. உரிமையாளர் சரிபார்த்து உங்களிடம் பேசுவார்.",
     },
 }
@@ -79,6 +82,7 @@ UNSAFE = re.compile(r"legal|lawyer|court|police|\bfir\b|cibil|credit (?:score|re
 
 # ponytail: in-memory per-call transcript, lost on restart (the DB log still has every turn). Persist if multi-worker.
 CALLS = {}
+CALL_META = {}  # debt_id -> {started}: lets the thread tell earlier contacts from the call in progress
 
 
 def _fmt_amount(a):
@@ -87,7 +91,7 @@ def _fmt_amount(a):
 
 def load_context(debt_id):
     with closing(get_db()) as db:
-        row = db.execute("SELECT d.*, c.name, c.language, c.phone FROM debts d JOIN contacts c ON c.id=d.contact_id"
+        row = db.execute("SELECT d.*, c.name, c.language, c.phone, c.payer_handle FROM debts d JOIN contacts c ON c.id=d.contact_id"
                          " WHERE d.id=?", (debt_id,)).fetchone()
         if row is None:
             raise LookupError(f"debt {debt_id} not found")
@@ -138,6 +142,7 @@ def start_call(debt_id):
         raise PermissionError(f"debt is {ctx['status']}, contact not allowed")
     text = opening(ctx)
     CALLS[debt_id] = [{"role": "user", "content": "(call connected)"}, {"role": "assistant", "content": text}]
+    CALL_META[debt_id] = {"started": datetime.now().strftime(TS)}
     return text
 
 
@@ -167,6 +172,16 @@ def _reply(ctx, msgs, intent, promised_date):
     return _canned(ctx, intent, promised_date, first_reply=len(msgs) <= 3)
 
 
+NO_RECHECK = ("refuse", "wrong_number", "dispute_amount")
+
+
+def _claim_pending(debt_id):
+    """A 'paid' claim was logged for this debt and the debt is not settled (the caller checks that)."""
+    with closing(get_db()) as db:
+        return db.execute("SELECT 1 FROM contact_log WHERE debt_id=? AND outcome='claims_paid' LIMIT 1",
+                          (debt_id,)).fetchone() is not None
+
+
 def _verify(debt_id):
     """Feed check for a 'paid' claim. Settles on certain/high; ambiguous and no-match are left open."""
     with closing(get_db()) as db:
@@ -191,16 +206,23 @@ def turn(debt_id, utterance):
     msgs = CALLS[debt_id]
     msgs.append({"role": "user", "content": utterance or "(silence)"})
     res = classify(utterance, {"last_agent_reply": msgs[-2]["content"]})
-    # "I paid": the ledger decides, not the claim. No match keeps the normal reply (asks for a screenshot).
+    # "I paid": the ledger decides, not the claim. A claim that found nothing stays pending on the debt, so the
+    # customer's next turn (whatever the classifier makes of it) re-checks the feed first.
     settled = ctx["status"] == "settled"
-    verification = _verify(debt_id) if res["intent"] == "claims_paid" and not settled else None
+    claim = res["intent"] == "claims_paid"
+    pending = not claim and res["intent"] not in NO_RECHECK and _claim_pending(debt_id)
+    verification = _verify(debt_id) if (claim or pending) and not settled else None
+    if verification and verification["verified"]:
+        res["intent"] = "claims_paid"  # the claim is what we acted on, even if the classifier called this turn something else
     canned = CANNED[ctx["lang"]]
-    if settled and res["intent"] == "claims_paid":  # already confirmed earlier: say so, don't ask for a screenshot again
+    if settled and claim:  # already confirmed earlier: say so
         text = canned["verified"].format(a=_fmt_amount(ctx["amount"]))
     elif verification and verification["verified"]:
         text = canned["verified"].format(a=_fmt_amount(ctx["amount"]))
     elif verification and verification["confidence"] == "ambiguous":
         text = canned["review"]
+    elif claim or (pending and res["intent"] == "unclear"):  # no payment visible yet; a voice call can't take a screenshot
+        text = canned["pending"]
     else:
         text = _reply(ctx, msgs, res["intent"], res["promised_date"])
     msgs.append({"role": "assistant", "content": text})
@@ -212,6 +234,45 @@ def turn(debt_id, utterance):
         if verification["confidence"] == "ambiguous":
             outcome["needs_merchant"] = True  # a transaction exists but can't be tied to this customer
     return {"reply_text": text, "intent": res["intent"], "outcome": outcome, "language": ctx["lang"]}
+
+
+def _parse_transcript(text, first):
+    """A contact_log transcript -> [(role, text)]. Handles 'Customer: x\nAgent: y' and the inline 'Agent: ... Priya: ...'."""
+    bits = re.compile(r"(?:^|\s)(Agent|Customer|%s):\s*" % re.escape(first)).split((text or "").strip())
+    out = [("note", bits[0].strip())] if bits[0].strip() else []
+    out += [("agent" if who == "Agent" else "customer", said.strip()) for who, said in zip(bits[1::2], bits[2::2]) if said.strip()]
+    return out
+
+
+def thread(debt_id):
+    """The conversation as a phone thread: earlier contacts from contact_log, then the call in progress. Both the
+    merchant and customer views are thin readers of this, so the backend is the only place call state lives."""
+    ctx = load_context(debt_id)
+    meta, active, first = CALL_META.get(debt_id), debt_id in CALLS, ctx["name"].split()[0]
+    with closing(get_db()) as db:
+        rows = db.execute("SELECT id, ts, transcript FROM contact_log WHERE debt_id=? ORDER BY ts, id", (debt_id,)).fetchall()
+    msgs = []
+    for r in rows:
+        if active and meta and r["ts"] >= meta["started"]:
+            continue  # this call's turns come from the live transcript below
+        msgs += [{"id": f"h{r['id']}-{k}", "role": role, "text": text, "current": False}
+                 for k, (role, text) in enumerate(_parse_transcript(r["transcript"], first))]
+    if active:
+        msgs += [{"id": f"c{meta['started']}-{i}", "role": "agent" if m["role"] == "assistant" else "customer",
+                  "text": m["content"], "current": True} for i, m in enumerate(CALLS[debt_id][1:])]  # [0] is the connect marker
+    return {"debt_id": debt_id, "name": ctx["name"], "language": ctx["lang"], "status": ctx["status"],
+            "active": active, "messages": msgs}
+
+
+def active_calls():
+    out = []
+    for debt_id in CALLS:
+        try:
+            out.append({"debt_id": debt_id, "name": load_context(debt_id)["name"],
+                        "started": CALL_META.get(debt_id, {}).get("started", "")})
+        except LookupError:
+            continue
+    return sorted(out, key=lambda c: c["started"], reverse=True)
 
 
 if __name__ == "__main__":

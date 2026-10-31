@@ -68,6 +68,42 @@ assert t["outcome"]["status"] == "open" and t["outcome"]["verification"]["verifi
 assert t["outcome"]["trigger_verification"] is True                        # screenshot path still open
 assert routes.start_call(routes.CallIn(debt_id=1 + 3))["language"] in ("hi", "mr", "ta")
 
+# pending claim: a claim that found nothing is re-checked on the customer's next turn, whatever the classifier says
+t = conversation.turn(5, "paisa bhej diya hai")                              # debt 5 (150): feed empty
+assert t["reply_text"] == conversation.CANNED[t["language"]]["pending"], t   # no screenshot request on a voice call
+db.execute("INSERT INTO transactions VALUES (104,150,?,'REFPENDING01','sachin@paytm','SUCCESS')", (now,)); db.commit()
+real_classify = conversation.classify
+conversation.classify = lambda u, c=None: {"intent": "promise_to_pay", "promised_date": "2030-01-01"}  # the misclassification we saw
+t = conversation.turn(5, "haan ab bhej diya hai")
+assert t["outcome"]["status"] == "settled" and t["intent"] == "claims_paid", t   # settled, no promise recorded
+assert db.execute("SELECT COUNT(*) FROM promises WHERE debt_id=5").fetchone()[0] == 0
+conversation.classify = real_classify
+# a refusal is never second-guessed by a pending claim
+conversation.start_call(3)
+conversation.classify = lambda u, c=None: {"intent": "claims_paid", "promised_date": None}
+conversation.turn(3, "bhej diya")                                            # ambiguous (two 300s), claim stays pending
+conversation.classify = lambda u, c=None: {"intent": "refuse", "promised_date": None}
+assert "verification" not in conversation.turn(3, "nahi dunga")["outcome"]
+conversation.classify = real_classify
+
+# new debtors: nobody close + an amount creates the contact and the debt; a near-miss returns candidates
+r = parse_intake("Vikram ko 500 ka reminder bhejo")
+assert r["new_name"] == "Vikram" and r["contact_id"] is None, r
+assert parse_intake("विक्रम को ५०० का रिमाइंडर भेजो")["new_name"] == "Vikram"
+assert parse_intake("Suresh ko 100")["new_name"] == "Suresh"                 # 0.67 to Ramesh: still a different person
+assert parse_intake("Rakesh ko 100")["new_name"] is None                    # 0.83 to Ramesh/Rajesh: candidates, not a new contact
+assert parse_intake("Rakesh ko 100")["candidates"]
+assert parse_intake("Vikram ko reminder bhejo")["new_name"] is None         # no amount: never create
+made = routes.intake(routes.IntakeIn(text="Vikram ko 500 ka reminder bhejo"))
+assert made["created"] and made["new_contact"] and made["debt"]["amount"] == 500, made
+assert db.execute("SELECT name, phone, language FROM contacts WHERE id=?", (made["contact_id"],)).fetchone() == ("Vikram", None, "hi")
+again = routes.intake(routes.IntakeIn(text="Vikram ko 500 ka reminder bhejo"))
+assert again["existing"] and not again.get("new_contact") and again["debt_id"] == made["debt"]["id"], again  # no second Vikram
+assert routes.intake(routes.IntakeIn(text="வினோத் ko 200"))["created"] is True
+assert db.execute("SELECT language FROM contacts ORDER BY id DESC LIMIT 1").fetchone()[0] == "ta"  # Tamil script -> ta
+conversation.start_call(made["debt"]["id"])
+assert conversation.start_call(made["debt"]["id"]).count("Vikram") == 1     # a new contact can be called straight away
+
 # a reply cut off by max_tokens is trimmed to its last full sentence, or rejected if it has none
 import requests
 from agent import llm

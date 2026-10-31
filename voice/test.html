@@ -5,74 +5,125 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PayTime Voice Demo</title>
   <style>
-    body { background: #101827; color: #f8fafc; font: 18px/1.5 system-ui, sans-serif; margin: 0; }
-    main { max-width: 760px; margin: 6vh auto; padding: 32px; }
-    button { background: #22c55e; border: 0; border-radius: 10px; color: #052e16; cursor: pointer; font: inherit; font-weight: 700; padding: 14px 20px; }
-    button[disabled] { cursor: wait; opacity: .55; }
-    #status { color: #a5f3fc; min-height: 1.5em; }
-    #transcript, #agentReply, #details { background: #1e293b; border-radius: 10px; min-height: 42px; padding: 16px; white-space: pre-wrap; }
-    .hint { color: #cbd5e1; font-size: .9rem; }
-    select { background: #1e293b; color: #fff; font: inherit; padding: 8px; border-radius: 8px; }
+    body { background: #101827; color: #f8fafc; font: 17px/1.5 system-ui, sans-serif; margin: 0; }
+    main { max-width: 760px; margin: 0 auto; padding: 18px 28px 28px; }
+    button { background: #22c55e; border: 0; border-radius: 10px; color: #052e16; cursor: pointer; font: inherit; font-weight: 700; padding: 12px 18px; }
+    button[disabled] { cursor: not-allowed; opacity: .4; }
+    button.alt { background: #f59e0b; color: #2a1700; }
+    button.ghost { background: #334155; color: #e2e8f0; }
+    #status { color: #a5f3fc; min-height: 1.5em; margin: 8px 0; }
+    .box { background: #1e293b; border-radius: 10px; min-height: 40px; padding: 12px 16px; white-space: pre-wrap; }
+    .hint { color: #94a3b8; font-size: .8rem; margin: 14px 0 4px; letter-spacing: .5px; text-transform: uppercase; }
     .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    /* who is speaking right now: the audience reads this first */
+    #role { border-radius: 12px; padding: 14px 18px; font-weight: 800; font-size: 1.15rem; letter-spacing: .6px; background: #1e293b; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    #role.merchant { background: #f59e0b; color: #2a1700; }
+    #role.debtor { background: #22c55e; color: #052e16; }
+    #role.recording { animation: pulse 1s ease-in-out infinite; box-shadow: 0 0 0 3px #ef4444; }
+    #role .rec { color: #7f1d1d; font-variant-numeric: tabular-nums; }
+    @keyframes pulse { 50% { opacity: .75; } }
+    /* the person being called */
+    #target { margin: 14px 0; background: #17233a; border: 1px solid #2c3d5c; border-radius: 12px; padding: 14px 18px; }
+    #target h2 { margin: 0 0 8px; font-size: 1.35rem; }
+    #target dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px; margin: 0; }
+    #target dt { color: #94a3b8; font-size: .7rem; letter-spacing: .6px; text-transform: uppercase; }
+    #target dd { margin: 0; font-weight: 700; }
+    #target .upi-yes { color: #4ade80; } #target .upi-no { color: #fbbf24; }
+    #draftRow { display: flex; gap: 10px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+    label.auto { color: #94a3b8; font-size: .85rem; }
   </style>
 </head>
 <body>
   <main>
-    <h1>PayTime voice demo</h1>
-    <p>Speak the merchant’s request, then take the debtor’s side in the browser call. Agent replies are spoken aloud.</p>
-    <p class="row"><label for="language">Debtor language</label>
-      <select id="language"><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="ta">Tamil</option></select>
-    </p>
-    <button id="recordButton" type="button">Record merchant request</button>
+    <div id="role"><span id="roleText">Choose who speaks</span><span class="rec" id="roleRec"></span></div>
+
+    <section id="target" hidden>
+      <h2 id="tName"></h2>
+      <dl>
+        <div><dt>Owes</dt><dd id="tAmount"></dd></div>
+        <div><dt>Overdue</dt><dd id="tOverdue"></dd></div>
+        <div><dt>Stage</dt><dd id="tStage"></dd></div>
+        <div><dt>Language</dt><dd id="tLang"></dd></div>
+        <div><dt>Status</dt><dd id="tStatus"></dd></div>
+        <div><dt>UPI handle</dt><dd id="tUpi"></dd></div>
+      </dl>
+    </section>
+
+    <div class="row">
+      <button id="merchantButton" class="alt" type="button">Speak as merchant</button>
+      <button id="debtorButton" type="button" disabled>Speak as customer</button>
+    </div>
     <p id="status" aria-live="polite">Ready.</p>
-    <p class="hint">Latest transcript</p>
-    <div id="transcript">—</div>
+
+    <p class="hint">What was heard (re-record by pressing the same button again)</p>
+    <div class="box" id="transcript">—</div>
+    <div id="draftRow" hidden>
+      <button id="sendButton" type="button">Send this turn</button>
+      <label class="auto"><input type="checkbox" id="autoSend"> send automatically after recording</label>
+    </div>
+
     <p class="hint">Agent says</p>
-    <div id="agentReply">The agent reply will appear here.</div>
-    <p class="hint">Intake / call status</p>
-    <div id="details">No call started.</div>
+    <div class="box" id="agentReply">The agent reply will appear here.</div>
+    <button id="replayButton" class="ghost" type="button" hidden style="margin-top:8px">▶ Play the agent's line</button>
+    <p class="hint">Call status</p>
+    <div class="box" id="details">No call started.</div>
   </main>
   <script>
-    const button = document.querySelector('#recordButton');
-    const status = document.querySelector('#status');
-    const transcript = document.querySelector('#transcript');
-    const agentReply = document.querySelector('#agentReply');
-    const details = document.querySelector('#details');
-    const language = document.querySelector('#language');
-    let recorder;
-    let stream;
-    let chunks = [];
+    const $ = id => document.getElementById(id);
+    const merchantButton = $('merchantButton'), debtorButton = $('debtorButton'), sendButton = $('sendButton');
+    let recorder, stream, chunks = [], recStart = 0, timerId = null;
     let currentStep = 'microphone';
-    let activeDebtId = null;
-    let isRecording = false;
+    let activeDebtId = null, activeName = 'customer', currentLang = 'hi', lastAgentLine = '';
+    let recordingRole = null;   // 'merchant' | 'debtor' while the microphone is open
+    let draft = null;           // {role, text}: transcribed, not yet sent
+    let busy = false;
 
-    function setBusy(message) {
-      button.disabled = true;
-      status.textContent = message;
+    const params = new URLSearchParams(location.search);
+    const startDebt = parseInt(params.get('debt_id'), 10);   // ?debt_id=N: call this debtor directly, skip intake
+
+    function setRole(kind, text, rec = '') {
+      const el = $('role');
+      el.className = kind + (recordingRole ? ' recording' : '');
+      $('roleText').textContent = text;
+      $('roleRec').textContent = rec;
     }
+    function idleBanner() {
+      if (draft) setRole(draft.role, `DRAFT READY, as ${draft.role === 'merchant' ? 'MERCHANT' : activeName.toUpperCase()}: send it, or record again`);
+      else setRole('', activeDebtId ? `Call with ${activeName}: choose who speaks` : 'Choose who speaks');
+    }
+    function refreshButtons() {
+      merchantButton.disabled = busy || recordingRole === 'debtor';
+      debtorButton.disabled = busy || !activeDebtId || recordingRole === 'merchant';
+      merchantButton.textContent = recordingRole === 'merchant' ? 'Stop recording (merchant)' : 'Speak as merchant';
+      debtorButton.textContent = recordingRole === 'debtor' ? `Stop recording (${activeName})` : `Speak as ${activeDebtId ? activeName : 'customer'}`;
+      sendButton.disabled = busy || !draft || !!recordingRole;
+    }
+    function setBusy(message) { busy = true; status.textContent = message; refreshButtons(); }
+    function setIdle(message) { busy = false; if (message) status.textContent = message; idleBanner(); refreshButtons(); }
+    const status = $('status');
 
     async function requestJson(url, body) {
-      const response = await fetch(url, {
-        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
-      });
+      const response = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || `${url} failed (${response.status})`);
       return data;
     }
 
     async function speak(text) {
+      lastAgentLine = text;
       currentStep = 'TTS request';
       const response = await fetch('/api/voice/tts', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({text, language: language.value}),
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text, language: currentLang}),
       });
       if (!response.ok) throw new Error((await response.json()).detail || 'TTS failed');
       const source = URL.createObjectURL(await response.blob());
       const player = new Audio(source);
       player.onended = () => URL.revokeObjectURL(source);
-      await player.play();
+      try { await player.play(); $('replayButton').hidden = true; }
+      catch (error) { $('replayButton').hidden = false; status.textContent = 'The browser blocked autoplay: press ▶ to hear the agent.'; }
     }
+    $('replayButton').addEventListener('click', () => speak(lastAgentLine).catch(e => status.textContent = e.message));
 
     async function transcribe(blob) {
       currentStep = 'STT request';
@@ -83,91 +134,132 @@
       return (await response.json()).text;
     }
 
+    async function showCard(debtId) {
+      const response = await fetch(`/api/agent/debts/${debtId}/card`);
+      const card = await response.json();
+      if (!response.ok) throw new Error(card.detail || 'Could not load the debtor');
+      activeDebtId = debtId; activeName = card.name; currentLang = card.language;
+      $('tName').textContent = card.name;
+      $('tAmount').textContent = '₹' + Number(card.amount).toLocaleString('en-IN');
+      $('tOverdue').textContent = `${card.days_overdue} day${card.days_overdue === 1 ? '' : 's'}`;
+      $('tStage').textContent = `${card.stage} · ${card.stage_name}`;
+      $('tLang').textContent = card.language_name;
+      $('tStatus').textContent = card.status;
+      $('tUpi').innerHTML = card.upi_known ? `<span class="upi-yes">known · ${card.payer_handle}</span>` : '<span class="upi-no">not known yet</span>';
+      $('target').hidden = false;
+      refreshButtons();
+      return card;
+    }
+
+    async function startCall(debtId) {
+      await showCard(debtId);
+      currentStep = 'starting agent call';
+      const call = await requestJson('/api/agent/start_call', {debt_id: debtId});
+      currentLang = call.language || currentLang;
+      $('agentReply').textContent = call.reply_text;
+      $('details').textContent = `Call to ${activeName} · debt ${debtId}`;
+      await speak(call.reply_text);
+      setIdle(`${activeName} is being called. Press "Speak as ${activeName}" to reply.`);
+    }
+
     async function handleMerchantRequest(text) {
       currentStep = 'agent intake';
       const result = await requestJson('/api/agent/intake', {text});
       const debtId = result.debt_id || result.debt?.id;
       if (!debtId) {
         const candidates = (result.candidates || []).map(item => `${item.name} (${Math.round(item.score * 100)}%)`).join(', ');
-        details.textContent = candidates
-          ? `Could not confidently match a debtor. Candidates: ${candidates}. Try saying the name and amount more clearly.`
+        $('details').textContent = candidates
+          ? `Could not confidently match a debtor. Candidates: ${candidates}. Try again with a clearer name and amount.`
           : 'Could not identify a debtor and amount. Try: “Ramesh ko 850 ka reminder bhejo”.';
-        status.textContent = 'Intake needs clarification. Record the request again with a clearer name and amount.';
+        setIdle('Intake needs clarification: record the merchant request again.');
         return;
       }
-      activeDebtId = debtId;
-      details.textContent = `${result.existing ? 'Existing debt' : 'Debt created'} · ID ${activeDebtId} · ₹${result.amount ?? result.debt?.amount ?? ''}`;
-      currentStep = 'starting agent call';
-      const call = await requestJson('/api/agent/start_call', {debt_id: activeDebtId});
-      agentReply.textContent = call.reply_text;
-      await speak(call.reply_text);
-      status.textContent = 'Agent is speaking to the debtor. Record the debtor’s reply next.';
-      button.textContent = 'Record debtor reply';
+      $('details').textContent = `${result.new_contact ? 'New customer' : result.existing ? 'Existing debt' : 'Debt created'} · ID ${debtId} · ₹${result.amount ?? result.debt?.amount ?? ''}`;
+      await startCall(debtId);
     }
 
     async function handleDebtorReply(text) {
       currentStep = 'agent conversation';
       const result = await requestJson('/api/agent/turn', {debt_id: activeDebtId, utterance: text});
-      agentReply.textContent = result.reply_text;
+      currentLang = result.language || currentLang;
+      $('agentReply').textContent = result.reply_text;
       const outcome = result.outcome || {};
-      const statusText = outcome.status ? ` · status: ${outcome.status}` : '';
-      details.textContent = `Debt ID ${activeDebtId} · intent: ${result.intent || 'unknown'}${statusText}`;
+      $('details').textContent = `${activeName} · intent: ${result.intent || 'unknown'}` + (outcome.status ? ` · status: ${outcome.status}` : '')
+        + (outcome.verification?.verified ? ` · payment verified (${outcome.verification.confidence})` : '');
+      await showCard(activeDebtId).catch(() => {});
       await speak(result.reply_text);
-      status.textContent = outcome.needs_merchant
-        ? 'The agent flagged this for the merchant. The browser call can end here.'
-        : 'Agent replied. Record another debtor reply, or refresh to start a new demo.';
+      setIdle(outcome.needs_merchant ? 'The agent flagged this for the merchant. The call can end here.'
+                                     : 'Agent replied. Reply again as the customer, or speak as the merchant.');
     }
 
-    async function processRecording(blob) {
-      setBusy('Transcribing…');
-      const text = await transcribe(blob);
-      transcript.textContent = text || '(no speech recognized)';
-      if (!text.trim()) throw new Error('No speech was recognized. Please try again.');
-      if (activeDebtId === null) await handleMerchantRequest(text);
-      else await handleDebtorReply(text);
-    }
-
-    fetch('/api/voice/ping')
-      .then(response => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        status.textContent = 'Server connected. Ready.';
-      })
-      .catch(error => {
-        status.textContent = `Voice server unreachable at ${location.origin} (${error.message}). Start it with: py -3 -m uvicorn app:app --reload`;
-      });
-
-    button.addEventListener('click', async () => {
-      if (isRecording && recorder?.state === 'recording') {
-        button.disabled = true;
-        isRecording = false;
-        recorder.stop();
-        return;
+    async function send() {
+      if (!draft || busy) return;
+      const turn = draft; draft = null;
+      setBusy(turn.role === 'merchant' ? 'Understanding the request…' : 'Agent is thinking…');
+      try {
+        if (turn.role === 'merchant') await handleMerchantRequest(turn.text);
+        else await handleDebtorReply(turn.text);
+      } catch (error) {
+        draft = turn;   // keep the draft so it can be sent again
+        setIdle(`Failed during ${currentStep}: ${error.message}`);
       }
+    }
+    sendButton.addEventListener('click', send);
+
+    async function onRecorded(role, blob) {
+      setBusy('Transcribing…');
+      try {
+        const text = (await transcribe(blob)) || '';
+        if (!text.trim()) { setIdle('No speech recognized: press the button and try again.'); return; }
+        draft = {role, text};                       // replaces any earlier draft: that is the re-record
+        $('transcript').textContent = `${role === 'merchant' ? 'Merchant' : activeName}: ${text}`;
+        $('draftRow').hidden = false;
+        setIdle($('autoSend').checked ? '' : 'Check the transcript. Press Send, or record again to replace it.');
+        if ($('autoSend').checked) await send();
+      } catch (error) {
+        setIdle(`Failed during ${currentStep}: ${error.message}`);
+      }
+    }
+
+    async function toggleRecording(role) {
+      if (busy) return;
+      if (recordingRole === role) { recorder.stop(); return; }       // second press of the same button: stop
+      if (recordingRole) return;
       try {
         currentStep = 'microphone permission';
         stream = await navigator.mediaDevices.getUserMedia({audio: true});
-        chunks = [];
-        recorder = new MediaRecorder(stream);
-        recorder.ondataavailable = event => chunks.push(event.data);
-        recorder.onstop = async () => {
-          stream.getTracks().forEach(track => track.stop());
-          try {
-            await processRecording(new Blob(chunks, {type: recorder.mimeType || 'audio/webm'}));
-          } catch (error) {
-            status.textContent = `Failed during ${currentStep}: ${error.message}. Check that this page is open from the running PayTime server at ${location.origin}.`;
-          } finally {
-            button.disabled = false;
-            button.textContent = 'Start recording';
-          }
-        };
-        recorder.start();
-        isRecording = true;
-        button.textContent = 'Stop recording';
-        status.textContent = 'Recording… speak now, then press Stop recording.';
       } catch (error) {
-        status.textContent = `Microphone access failed: ${error.message}. Open this page from http://127.0.0.1:8000/api/voice/test and allow microphone access.`;
+        setIdle(`Microphone access failed: ${error.message}. Allow the microphone for this site and try again.`);
+        return;
       }
-    });
+      chunks = [];
+      recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = event => chunks.push(event.data);
+      recorder.onstop = () => {
+        clearInterval(timerId);
+        stream.getTracks().forEach(track => track.stop());
+        recordingRole = null; refreshButtons();
+        onRecorded(role, new Blob(chunks, {type: recorder.mimeType || 'audio/webm'}));
+      };
+      recorder.start();
+      recordingRole = role; recStart = Date.now();
+      const who = role === 'merchant' ? 'MERCHANT' : activeName.toUpperCase();
+      const tick = () => setRole(role, `NOW SPEAKING AS: ${who}`, `● REC ${Math.floor((Date.now() - recStart) / 1000)}s`);
+      tick(); timerId = setInterval(tick, 250);
+      status.textContent = `Recording as ${role === 'merchant' ? 'the merchant' : activeName}… press the same button to stop.`;
+      refreshButtons();
+    }
+    merchantButton.addEventListener('click', () => toggleRecording('merchant'));
+    debtorButton.addEventListener('click', () => toggleRecording('debtor'));
+
+    fetch('/api/voice/ping')
+      .then(response => { if (!response.ok) throw new Error(`HTTP ${response.status}`); status.textContent = 'Server connected. Ready.'; })
+      .catch(error => { status.textContent = `Voice server unreachable at ${location.origin} (${error.message}).`; });
+
+    if (startDebt) {   // opened from the dashboard's "Call now": the target is already chosen
+      setBusy('Starting the call…');
+      startCall(startDebt).catch(error => { setIdle(`Could not start the call: ${error.message}`); });
+    } else { idleBanner(); refreshButtons(); }
   </script>
 </body>
 </html>
