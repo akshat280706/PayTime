@@ -54,3 +54,19 @@ def next_action(debt, now=None):
     if d["stage"] >= 1:
         return {"action": "call_firm", "reason": f"stage {d['stage']}"}
     return {"action": "call_gentle", "reason": "stage 0"}
+
+
+_rule_next_action = next_action
+
+
+def next_action(debt, now=None):  # noqa: F811
+    """The rule above decides whether contact is allowed at all (hours, status, 48h gap). If it allows contact,
+    the learned policy picks the action; any failure (e.g. policy/params.npz missing) keeps the rule's answer."""
+    result = _rule_next_action(debt, now)
+    if result["action"] == "wait":
+        return result
+    try:
+        from policy.infer import context_from_debt, learned_next_action
+        return learned_next_action(context_from_debt(debt, now))
+    except Exception:
+        return result
