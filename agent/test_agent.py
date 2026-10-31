@@ -44,6 +44,30 @@ try:
 except PermissionError:
     pass
 assert policy.next_action({"id": 1, "status": "opted_out", "stage": 0, "next_action_at": None})["action"] == "wait"
+# "I paid": the ledger decides. certain/high settles, ambiguous goes to the merchant, no match asks for a screenshot
+import sqlite3
+from datetime import datetime
+db = sqlite3.connect("state.db")
+now = datetime.now().isoformat(timespec="seconds")
+db.execute("INSERT INTO transactions VALUES (101,1200,?,'REFCERTAIN001','priya@paytm','SUCCESS')", (now,))      # debt 2, handle known
+db.executemany("INSERT INTO transactions VALUES (?,300,?,?,NULL,'SUCCESS')",                                      # debt 3, two unknown payers
+               [(102, now, "REFAMBIG0001"), (103, now, "REFAMBIG0002")])
+db.commit()
+for debt in (2, 3, 5):
+    conversation.start_call(debt)
+t = conversation.turn(2, "paisa bhej diya hai")
+assert t["outcome"]["status"] == "settled" and t["outcome"]["verification"]["confidence"] == "certain", t
+assert t["outcome"]["next_action_at"] is None and "1200" in t["reply_text"] and t["language"] == "mr"
+again = conversation.turn(2, "paisa bhej diya hai")                       # a repeat claim on a settled debt
+assert again["reply_text"] == t["reply_text"] and "verification" not in again["outcome"], again
+t = conversation.turn(3, "paisa bhej diya hai")
+assert t["outcome"]["status"] != "settled" and t["outcome"]["needs_merchant"] is True, t
+assert t["outcome"]["verification"] == {"verified": False, "confidence": "ambiguous", "candidate_ref": "REFAMBIG0001"}
+t = conversation.turn(5, "paisa bhej diya hai")
+assert t["outcome"]["status"] == "open" and t["outcome"]["verification"]["verified"] is False, t
+assert t["outcome"]["trigger_verification"] is True                        # screenshot path still open
+assert routes.start_call(routes.CallIn(debt_id=1 + 3))["language"] in ("hi", "mr", "ta")
+
 # a reply cut off by max_tokens is trimmed to its last full sentence, or rejected if it has none
 import requests
 from agent import llm

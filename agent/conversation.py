@@ -7,6 +7,7 @@ from agent.intents import classify
 from agent.policy import CLOSED
 from agent.state import apply_outcome
 from db import get_db
+from verify.matcher import match_feed_transaction, settle_debt
 
 MERCHANT = "Sharma General Store"
 LANGS = {"hi": "Hindi", "mr": "Marathi", "ta": "Tamil"}
@@ -40,6 +41,8 @@ CANNED = {
         "wrong_number": "माफ़ कीजिए, गलत नंबर लग गया। आपका दिन शुभ हो।",
         "callback_later": "ठीक है, मैं बाद में फिर से कॉल करूँगी। धन्यवाद।",
         "unclear": "माफ़ कीजिए, क्या आप दोबारा बता सकते हैं?",
+        "verified": "धन्यवाद, आपका {a} रुपये का भुगतान मिल गया है। अब आपको कोई रिमाइंडर नहीं आएगा।",
+        "review": "धन्यवाद। मैं अभी इसकी पुष्टि नहीं कर पाई। मालिक इसे देखकर आपसे संपर्क करेंगे।",
     },
     "mr": {
         "ask0": "तुमचे {a} रुपये बाकी आहेत, याची ही छोटीशी आठवण. सोयीनुसार कृपया भरून टाका.",
@@ -52,6 +55,8 @@ CANNED = {
         "wrong_number": "माफ करा, चुकीचा नंबर लागला. तुमचा दिवस शुभ जावो.",
         "callback_later": "ठीक आहे, आम्ही नंतर पुन्हा कॉल करू. धन्यवाद.",
         "unclear": "माफ करा, कृपया पुन्हा सांगाल का?",
+        "verified": "धन्यवाद, तुमचे {a} रुपयांचे पेमेंट मिळाले आहे. आता तुम्हाला कोणताही रिमाइंडर येणार नाही.",
+        "review": "धन्यवाद. मला आत्ता याची खात्री करता आली नाही. मालक ते तपासून तुमच्याशी बोलतील.",
     },
     "ta": {
         "ask0": "{a} ரூபாய் நிலுவையில் உள்ளது என்பதற்கான சிறிய நினைவூட்டல். உங்களுக்கு வசதியான நேரத்தில் செலுத்துங்கள்.",
@@ -64,6 +69,8 @@ CANNED = {
         "wrong_number": "மன்னிக்கவும், தவறான எண். நல்ல நாளாக அமையட்டும்.",
         "callback_later": "சரி, பிறகு மீண்டும் அழைக்கிறோம். நன்றி.",
         "unclear": "மன்னிக்கவும், மீண்டும் சொல்ல முடியுமா?",
+        "verified": "நன்றி, உங்கள் {a} ரூபாய் பணம் கிடைத்தது. இனி உங்களுக்கு நினைவூட்டல் வராது.",
+        "review": "நன்றி. என்னால் இப்போது உறுதிப்படுத்த முடியவில்லை. உரிமையாளர் சரிபார்த்து உங்களிடம் பேசுவார்.",
     },
 }
 # Safety net behind the prompt rules: a reply that mentions any of these is replaced by a canned one.
@@ -160,6 +167,23 @@ def _reply(ctx, msgs, intent, promised_date):
     return _canned(ctx, intent, promised_date, first_reply=len(msgs) <= 3)
 
 
+def _verify(debt_id):
+    """Feed check for a 'paid' claim. Settles on certain/high; ambiguous and no-match are left open."""
+    with closing(get_db()) as db:
+        m = match_feed_transaction(db, debt_id=debt_id)
+        if not m:
+            return {"verified": False, "confidence": None}
+        txn = m["transaction"]
+        if m["confidence"] == "ambiguous":
+            return {"verified": False, "confidence": "ambiguous", "candidate_ref": txn["ref"]}
+        try:
+            learned = settle_debt(db, debt_id, txn)
+        except ValueError:  # closed or reference already used meanwhile
+            return {"verified": False, "confidence": None}
+        return {"verified": True, "confidence": m["confidence"], "amount": txn["amount"],
+                "transaction_ref": txn["ref"], "payer_handle_learned": learned}
+
+
 def turn(debt_id, utterance):
     ctx = load_context(debt_id)
     if debt_id not in CALLS:
@@ -167,12 +191,27 @@ def turn(debt_id, utterance):
     msgs = CALLS[debt_id]
     msgs.append({"role": "user", "content": utterance or "(silence)"})
     res = classify(utterance, {"last_agent_reply": msgs[-2]["content"]})
-    text = _reply(ctx, msgs, res["intent"], res["promised_date"])
+    # "I paid": the ledger decides, not the claim. No match keeps the normal reply (asks for a screenshot).
+    settled = ctx["status"] == "settled"
+    verification = _verify(debt_id) if res["intent"] == "claims_paid" and not settled else None
+    canned = CANNED[ctx["lang"]]
+    if settled and res["intent"] == "claims_paid":  # already confirmed earlier: say so, don't ask for a screenshot again
+        text = canned["verified"].format(a=_fmt_amount(ctx["amount"]))
+    elif verification and verification["verified"]:
+        text = canned["verified"].format(a=_fmt_amount(ctx["amount"]))
+    elif verification and verification["confidence"] == "ambiguous":
+        text = canned["review"]
+    else:
+        text = _reply(ctx, msgs, res["intent"], res["promised_date"])
     msgs.append({"role": "assistant", "content": text})
     outcome = apply_outcome(debt_id, res["intent"], {
         "promised_date": res["promised_date"],
         "transcript": f"Customer: {utterance}\nAgent: {text}"})
-    return {"reply_text": text, "intent": res["intent"], "outcome": outcome}
+    if verification:
+        outcome["verification"] = verification
+        if verification["confidence"] == "ambiguous":
+            outcome["needs_merchant"] = True  # a transaction exists but can't be tied to this customer
+    return {"reply_text": text, "intent": res["intent"], "outcome": outcome, "language": ctx["lang"]}
 
 
 if __name__ == "__main__":
