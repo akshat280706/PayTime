@@ -1,13 +1,18 @@
+import os
+from contextlib import closing
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from agent.routes import router as agent_router
+from agent.state import add_payment
 from auth.routes import CURRENT_DB, get_identity, init_auth, merchant_db
 from auth.routes import router as auth_router
+from db import get_db
 from ui.routes import router as ui_router
 from voice.routes import router as voice_router
 from verify.routes import router as verify_router
@@ -43,4 +48,24 @@ app.include_router(ui_router)
 app.include_router(agent_router)
 app.include_router(voice_router)
 app.include_router(verify_router)
+class DemoPayment(BaseModel):
+    debt_id: int
+
+
+@app.post("/api/demo/payment", include_in_schema=False)
+def demo_payment(body: DemoPayment):
+    """Stands in for Paytm's payment webhook: drops a successful payment for this debt into the feed.
+    No auth on purpose (reachable from a phone on the LAN); remove before anything real uses this app."""
+    with closing(get_db()) as db:
+        try:
+            return add_payment(db, body.debt_id)
+        except LookupError:
+            raise HTTPException(404, "Debt not found")
+
+
 app.mount("/ui", StaticFiles(directory=ROOT / "ui"), name="ui")  # after the routers: /ui/* is static, /api/ui/* is not
+
+
+if __name__ == "__main__":  # python app.py -> reachable from other machines on the LAN
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))

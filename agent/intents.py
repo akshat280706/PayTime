@@ -52,21 +52,21 @@ def resolve_date(text, today=None):
 
 def _keyword_intent(t):
     t = normalize_digits(t).lower()
-    if _has(t, "wrong number", "galat number", "rong number", "गलत नंबर", "रॉन्ग नंबर", "yahan koi nahi") \
+    if _has(t, "wrong number", "wrong person", "galat number", "rong number", "गलत नंबर", "रॉन्ग नंबर", "yahan koi nahi") \
             or re.search(r"(main|mai|mein)\s+(wo|woh|vo)\s+nahi", t):
         return "wrong_number"
     if _has(t, "paid", "bhej diya", "de diya", "kar diya", "kar di", "transfer kar", "भेज दिया", "दे दिया", "कर दिया"):
         return "claims_paid"
-    if _has(t, "nahi dunga", "nahi dungi", "nahi doonga", "nahin dena", "nahi dena", "mat karo", "won't pay",
+    if _has(t, "nahi dunga", "nahi dungi", "can't pay", "cannot pay", "not paying", "i refuse", "nahi doonga", "nahin dena", "nahi dena", "mat karo", "won't pay",
             "wont pay", "refuse", "नहीं दूंगा", "नहीं दूँगी", "नहीं दूंगी", "नहीं देना"):
         return "refuse"
-    if _has(t, "galat amount", "amount galat", "itna nahi", "itne nahi", "itne kab", "hisaab galat", "dispute",
+    if _has(t, "wrong amount", "don't owe", "do not owe", "galat amount", "amount galat", "itna nahi", "itne nahi", "itne kab", "hisaab galat", "dispute",
             "zyada hai", "ज्यादा है", "गलत हिसाब"):
         return "dispute_amount"
-    if _has(t, "kar dunga", "kar dungi", "de dunga", "de dungi", "bhej dunga", "bhej dungi", "denge", "dunga",
+    if _has(t, "i'll pay", "i will pay", "pay tomorrow", "kar dunga", "kar dungi", "de dunga", "de dungi", "bhej dunga", "bhej dungi", "denge", "dunga",
             "dungi", "will pay", "pay kar", "pakka", "कर दूंगा", "कर दूँगी", "दे दूंगा", "दे दूंगी", "देंगे"):
         return "promise_to_pay"
-    if _has(t, "baad mein", "baad me", "later", "busy", "abhi nahi", "thodi der", "call back", "callback",
+    if _has(t, "baad mein", "baad me", "call me later", "not now", "later", "busy", "abhi nahi", "thodi der", "call back", "callback",
             "call karna", "call karo", "बाद में", "अभी नहीं"):
         return "callback_later"
     if resolve_date(t):

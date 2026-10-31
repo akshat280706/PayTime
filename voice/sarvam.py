@@ -17,8 +17,6 @@ DEFAULT_TTS_TEXT = "Namaste. This is an automated reminder from PayTime."
 LANGUAGE_CODES = {
     "en": "en-IN",
     "hi": "hi-IN",
-    "mr": "mr-IN",
-    "ta": "ta-IN",
 }
 DEFAULT_SPEAKER = "simran"  # Female Bulbul v3 voice; works across supported languages.
 CACHE_DIR = ROOT / "voice" / "cache"

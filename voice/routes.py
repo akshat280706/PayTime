@@ -17,7 +17,7 @@ MAX_AUDIO_BYTES = 10 * 1024 * 1024
 
 class TTSIn(BaseModel):
     text: str = Field(min_length=1, max_length=2_500)
-    language: str = "hi"  # PayTime contact code: hi, mr, ta (not Sarvam's BCP-47 format).
+    language: str = "hi"  # PayTime contact code: hi or en (not Sarvam's BCP-47 format).
 
 
 @router.get("/ping")
