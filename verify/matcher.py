@@ -79,7 +79,7 @@ def match_feed_transaction(conn: sqlite3.Connection, *, debt_id: int):
     return None
 
 
-def settle_debt(conn: sqlite3.Connection, debt_id: int, transaction: dict):
+def settle_debt(conn: sqlite3.Connection, debt_id: int, transaction: dict, confidence: str = None):
     """Atomic update; the null next_action_at is the stop-chasing signal."""
     with conn:
         row=conn.execute('SELECT status FROM debts WHERE id=?',(debt_id,)).fetchone()
@@ -94,5 +94,6 @@ def settle_debt(conn: sqlite3.Connection, debt_id: int, transaction: dict):
         if owner and not (owner[1] or '').strip() and (transaction.get('payer_handle') or '').strip():
             learned=transaction['payer_handle'].strip()  # the first payment teaches us who this customer pays as
             conn.execute("UPDATE contacts SET payer_handle=? WHERE id=?",(learned,owner[0]))
-        conn.execute('INSERT INTO contact_log (debt_id, ts, channel, stage, transcript, outcome) VALUES (?, ?, ?, ?, ?, ?)',(debt_id,datetime.now().isoformat(timespec='seconds'),'sms',0,f"Verified ledger transaction {transaction['ref']} for ₹{transaction['amount']}. Stop chasing.",'verified:'+transaction['ref']))
+        note=(f" [confidence: {confidence}]" if confidence else "")+(f" [learned payer handle: {learned}]" if learned else "")
+        conn.execute('INSERT INTO contact_log (debt_id, ts, channel, stage, transcript, outcome) VALUES (?, ?, ?, ?, ?, ?)',(debt_id,datetime.now().isoformat(timespec='seconds'),'sms',0,f"Verified ledger transaction {transaction['ref']} for ₹{transaction['amount']}{note}. Stop chasing.",'verified:'+transaction['ref']))
     return learned

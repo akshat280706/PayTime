@@ -50,3 +50,22 @@ body #app,
     background-color: #FFFFFF;
     border-color: #E1E5DB;
 }
+
+/* Voice call modal: dark to match voice/test.html so the iframe seam disappears */
+.call-modal{width:min(860px,calc(100vw - 32px));height:min(88vh,780px);padding:0!important;overflow:hidden!important;background:#101827!important;display:flex;flex-direction:column}
+.call-modal[hidden]{display:none!important}
+.call-modal .call-bar{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 0;color:#7f8fa9;font:600 10px/1 'IBM Plex Sans',sans-serif;letter-spacing:1.4px}
+.call-modal .call-bar button{background:transparent;border:0;color:#cbd5e1;cursor:pointer;display:grid;place-items:center}
+.call-modal iframe{flex:1;width:100%;border:0;background:#101827;color-scheme:dark}
+/* AI health indicator: visible across a room */
+.llm-status{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;font:700 12px/1 'IBM Plex Sans',sans-serif;letter-spacing:.6px}
+.llm-status i{width:9px;height:9px;border-radius:50%;background:currentColor}
+.llm-status.pending{background:#ecebe5;color:#6b6f66}
+.llm-status.ok{background:#dcebdd;color:#1f6b3a}
+.llm-status.down{background:#c0392b;color:#fff;animation:llmblink 1s ease-in-out infinite}
+@keyframes llmblink{50%{opacity:.6}}
+/* the settlement row is the moment of the demo */
+.activity-item.verified{background:#e4f1e6;border:1px solid #9ccaa8;border-radius:10px;padding:14px 12px}
+.activity-item.verified b{color:#1a5a30;font-size:14px}
+.verify-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.verify-chips span{font-size:10px;font-weight:700;letter-spacing:.4px;padding:4px 9px;border-radius:999px;background:#fff;color:#1f6b3a;border:1px solid #b4d6bd}

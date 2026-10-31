@@ -58,7 +58,7 @@ def check_feed(debt_id: int):
         if match['confidence']=='ambiguous':
             return {'verified':False,'needs_review':True,'confidence':'ambiguous','candidate':txn,
                     'message':'A transaction for this amount exists but cannot be tied to this customer. Merchant review needed; not settled.'}
-        try: learned=settle_debt(db,debt_id,txn)
+        try: learned=settle_debt(db,debt_id,txn,confidence=match['confidence'])
         except ValueError as ex: raise HTTPException(409,str(ex))
         return {'verified':True,'amount':txn['amount'],'transaction_ref':txn['ref'],'debt_id':debt_id,'stopped':True,
                 'confidence':match['confidence'],'payer_handle_learned':learned}

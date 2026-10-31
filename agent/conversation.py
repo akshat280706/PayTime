@@ -177,7 +177,7 @@ def _verify(debt_id):
         if m["confidence"] == "ambiguous":
             return {"verified": False, "confidence": "ambiguous", "candidate_ref": txn["ref"]}
         try:
-            learned = settle_debt(db, debt_id, txn)
+            learned = settle_debt(db, debt_id, txn, confidence=m["confidence"])
         except ValueError:  # closed or reference already used meanwhile
             return {"verified": False, "confidence": None}
         return {"verified": True, "confidence": m["confidence"], "amount": txn["amount"],
