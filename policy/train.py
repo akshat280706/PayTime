@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from policy.bandit import LinUCB, features
-from policy.simulator import ACTIONS, HORIZON, rollout
+from policy.simulator import ACTIONS, HORIZON, Debtor, rollout
 
 HERE = Path(__file__).parent
 TRAIN_N, EVAL_N = 4000, 2000
@@ -40,7 +40,25 @@ def train(seed=0):
 def evaluate(choose):
     """Same debtors (seeds) for every policy. -> cumulative recovered/contacts per day, opt-outs."""
     runs = [rollout(10**7 + i, choose) for i in range(EVAL_N)]
-    return sum(r[0] for r in runs), sum(r[1] for r in runs), sum(r[2] for r in runs)
+    return sum(r[0] for r in runs), sum(r[1] for r in runs), sum(r[2] for r in runs), sum(r[3] for r in runs)
+
+
+def by_group(choose, key, label):
+    """Learned vs baseline behaviour split into terciles of key(debtor), on the same held-out debtors."""
+    debtors = [Debtor(np.random.default_rng(10**7 + i)) for i in range(EVAL_N)]  # traits are drawn first
+    lo, hi = np.quantile([key(d) for d in debtors], [1 / 3, 2 / 3])
+    rows = {g: [0, 0, 0, 0, 0] for g in ("low", "mid", "high")}  # n, contacts, firm, opt-outs, recovered
+    for i, d in enumerate(debtors):
+        acts = []
+        def wrapped(c):
+            acts.append(choose(c))
+            return acts[-1]
+        rec, con, opt, _ = rollout(10**7 + i, wrapped)
+        row = rows["low" if key(d) <= lo else "mid" if key(d) <= hi else "high"]
+        row[:] = [row[0] + 1, row[1] + con[-1], row[2] + acts.count(FIRM), row[3] + opt, row[4] + rec[-1]]
+    print(f"  {label:<14}{'n':>6}{'contacts/debtor':>17}{'firm share':>12}{'opt-out %':>11}{'Rs/debtor':>11}")
+    for g, (n, con, firm, opt, rec) in rows.items():
+        print(f"  {g:<14}{n:>6}{con / n:>17.1f}{firm / max(con, 1):>12.0%}{opt / n:>11.1%}{rec / n:>11,.0f}")
 
 
 if __name__ == "__main__":
@@ -50,14 +68,20 @@ if __name__ == "__main__":
     results = {"learned (LinUCB)": evaluate(learned)} | {n: evaluate(f) for n, f in BASELINES.items()}
 
     print(f"\nSimulated debtors, not live data: {EVAL_N} held-out debtors, {HORIZON}-day episodes\n")
-    print(f"{'policy':32}{'recovered':>12}{'contacts':>10}{'opt-outs':>10}{'Rs/contact':>12}")
-    for name, (rec, con, opt) in results.items():
-        print(f"{name:32}{rec[-1]:>12,.0f}{con[-1]:>10,.0f}{opt:>10}{rec[-1] / max(con[-1], 1):>12,.0f}")
+    print(f"{'policy':32}{'recovered':>12}{'contacts':>10}{'opt-outs':>10}{'Rs/contact':>12}{'net reward':>13}")
+    for name, (rec, con, opt, net) in results.items():
+        print(f"{name:32}{rec[-1]:>12,.0f}{con[-1]:>10,.0f}{opt:>10}{rec[-1] / max(con[-1], 1):>12,.0f}{net:>13,.0f}")
+
+    fixed = BASELINES["fixed_schedule (every 3 days)"]
+    for key, label in [(lambda d: d.monthly_spend, "monthly_spend"), (lambda d: d.amount / d.monthly_spend, "amount/spend")]:
+        for name, f in (("learned", learned), ("fixed 3-day", fixed)):
+            print(f"\n{name}, by {label} (low = tercile with the least spend / smallest debt-to-spend ratio):")
+            by_group(f, key, label)
 
     fig, ax = plt.subplots(figsize=(11, 7))
     colors = {"learned (LinUCB)": "#0b6e4f", "never_contact": "#888888",
               "fixed_schedule (every 3 days)": "#e08a00", "aggressive (daily)": "#c0392b"}
-    for name, (rec, con, _) in results.items():
+    for name, (rec, con, *_) in results.items():
         ax.plot(np.r_[0, con], np.r_[0, rec] / 1000, lw=4 if name.startswith("learned") else 2.5,
                 color=colors[name], label=name)
         ax.plot(con[-1], rec[-1] / 1000, "o", ms=11, color=colors[name])

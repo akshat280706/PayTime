@@ -15,7 +15,7 @@ firm = [rollout(i, lambda c: 3) for i in range(300)]
 assert sum(r[2] for r in firm) > 0 and sum(r[2] for r in [rollout(i, lambda c: 0) for i in range(300)]) == 0
 assert all(r[1].max() <= 30 for r in firm)
 
-ctx = {"days_overdue": 20, "amount": 800, "contacts_so_far": 0, "promises_made": 0, "promises_kept": 0,
+ctx = {"monthly_spend": 2000.0, "days_overdue": 20, "amount": 800, "contacts_so_far": 0, "promises_made": 0, "promises_kept": 0,
        "days_since_last_contact": 30, "last_outcome": "none"}
 out = infer.learned_next_action(ctx)
 assert out["action"] in ACTIONS and out["reason"]

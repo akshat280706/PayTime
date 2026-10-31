@@ -21,6 +21,7 @@ class Debtor:
         self.fatigue = rng.uniform(0.05, 0.3)
         self.amount = float(rng.integers(150, 3001))
         self.overdue0 = int(rng.integers(0, 60))
+        self.monthly_spend = float(rng.integers(200, 5001))  # independent of the debt: what the customer buys
         self.day, self.annoy, self.engage = 0, 0.0, 0.0
         self.contacts, self.last_contact = 0, None
         self.promises_made = self.promises_kept = 0
@@ -29,7 +30,7 @@ class Debtor:
 
     def context(self):
         since = HORIZON if self.last_contact is None else self.day - self.last_contact
-        return {"days_overdue": self.overdue0 + self.day, "amount": self.amount, "contacts_so_far": self.contacts,
+        return {"days_overdue": self.overdue0 + self.day, "amount": self.amount, "monthly_spend": self.monthly_spend, "contacts_so_far": self.contacts,
                 "promises_made": self.promises_made, "promises_kept": self.promises_kept,
                 "days_since_last_contact": since, "last_outcome": self.last_outcome}
 
@@ -53,7 +54,7 @@ class Debtor:
             self.annoy += self.fatigue * ANNOY[action] * (1.5 if over and action == "call_firm" else 1)
             p_opt = OPT[action] * min(0.8, 0.005 + 0.4 * max(0.0, self.annoy - THRESHOLD))
             if rng.random() < p_opt:
-                return r - 20, False, True, True
+                return r - (self.amount + 6 * self.monthly_spend), False, True, True  # lose the debt and the customer
             if rng.random() < min(0.95, self.propensity * REACH[action]) * (0.5 if over else 1):
                 self.last_outcome = "engaged"
                 fatigue_mult = 1.0 if self.annoy < THRESHOLD else max(0.05, 1 - 1.5 * (self.annoy - THRESHOLD))
@@ -75,16 +76,17 @@ class Debtor:
 
 def rollout(seed, choose, learn=None):
     """Run one 30-day episode. choose(ctx)->action index into ACTIONS; learn(ctx, action, reward) is called each step.
-    -> per-day arrays (recovered, contacts) padded after the episode ends, and the opt-out flag."""
+    -> per-day arrays (recovered, contacts) padded after the episode ends, the opt-out flag, and the total reward."""
     d = Debtor(np.random.default_rng(seed))
-    recovered, contacts, opted = np.zeros(HORIZON), np.zeros(HORIZON), False
+    recovered, contacts, opted, total = np.zeros(HORIZON), np.zeros(HORIZON), False, 0.0
     for t in range(HORIZON):
         ctx = d.context()
         a = choose(ctx)
         r, paid, opted, contacted = d.step(ACTIONS[a])
+        total += r
         if learn:
             learn(ctx, a, r)
         recovered[t:], contacts[t:] = recovered[t:] + (d.amount if paid else 0), contacts[t:] + contacted
         if paid or opted:
             break
-    return recovered, contacts, opted
+    return recovered, contacts, opted, total

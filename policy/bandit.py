@@ -4,7 +4,7 @@ import numpy as np
 from policy.simulator import ACTIONS, OUTCOMES
 
 SCALE = 100.0  # rewards are divided by this so alpha is comparable across amounts
-D = 7 + len(OUTCOMES) + 2
+D = 7 + len(OUTCOMES) + 2 + 2
 
 
 def features(ctx):
@@ -13,7 +13,8 @@ def features(ctx):
     onehot = [float(ctx["last_outcome"] == o) for o in OUTCOMES]
     # amt*rec and amt*c: expected reward is amount x probability, which a plain linear model can't express
     return np.array([1, ctx["days_overdue"] / 90, amt, c, ctx["promises_made"] / 3, ctx["promises_kept"] / 3,
-                     rec, *onehot, amt * rec, amt * c])
+                     rec, *onehot, amt * rec, amt * c,
+                     ctx["monthly_spend"] / 5000, ctx["amount"] / ctx["monthly_spend"] / 15])
 
 
 class LinUCB:

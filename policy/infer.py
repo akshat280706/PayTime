@@ -9,6 +9,7 @@ from policy.bandit import LinUCB, features
 from policy.simulator import ACTIONS, HORIZON
 
 PARAMS = Path(__file__).parent / "params.npz"
+DEFAULT_SPEND = 2600.0  # midpoint of the simulated 200-5000 range: the app has no monthly_spend data
 _model = None  # ponytail: loaded once per process, restart the server after retraining
 
 
@@ -23,7 +24,7 @@ def _load():
 
 def learned_next_action(debt_context):
     """debt_context: the 7 fields from policy.simulator.Debtor.context(). -> {action, reason}, greedy."""
-    values = _load().values(features(debt_context))
+    values = _load().values(features({"monthly_spend": DEFAULT_SPEND, **debt_context}))
     best, second = np.argsort(-values)[:2]
     since = debt_context["days_since_last_contact"]
     history = (f"{debt_context['contacts_so_far']} contact(s) so far, last {since} day(s) ago"
