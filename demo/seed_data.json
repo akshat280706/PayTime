@@ -1,0 +1,157 @@
+{
+  "contacts": [
+    {
+      "id": 1,
+      "name": "Sharma ji",
+      "phone": "+91 98765 43210",
+      "language": "hi"
+    },
+    {
+      "id": 2,
+      "name": "Priya Patel",
+      "phone": "+91 98765 43211",
+      "language": "hi"
+    },
+    {
+      "id": 3,
+      "name": "Ravi Deshmukh",
+      "phone": "+91 98765 43212",
+      "language": "mr"
+    },
+    {
+      "id": 4,
+      "name": "Neha Gupta",
+      "phone": "+91 98765 43213",
+      "language": "hi"
+    },
+    {
+      "id": 5,
+      "name": "Imran Khan",
+      "phone": "+91 98765 43214",
+      "language": "hi"
+    },
+    {
+      "id": 6,
+      "name": "Anjali Mehta",
+      "phone": "+91 98765 43215",
+      "language": "hi"
+    },
+    {
+      "id": 7,
+      "name": "Sanjay Kulkarni",
+      "phone": "+91 98765 43216",
+      "language": "mr"
+    },
+    {
+      "id": 8,
+      "name": "Kavita Shah",
+      "phone": "+91 98765 43217",
+      "language": "hi"
+    },
+    {
+      "id": 9,
+      "name": "Amit Verma",
+      "phone": "+91 98765 43218",
+      "language": "hi"
+    },
+    {
+      "id": 10,
+      "name": "Farah Sheikh",
+      "phone": "+91 98765 43219",
+      "language": "hi"
+    },
+    {
+      "id": 11,
+      "name": "Kiran Rao",
+      "phone": "+91 98765 43220",
+      "language": "mr"
+    },
+    {
+      "id": 12,
+      "name": "Rahul Jain",
+      "phone": "+91 98765 43221",
+      "language": "hi"
+    },
+    {
+      "id": 13,
+      "name": "Pooja Iyer",
+      "phone": "+91 98765 43222",
+      "language": "ta"
+    },
+    {
+      "id": 14,
+      "name": "Vikas Pawar",
+      "phone": "+91 98765 43223",
+      "language": "mr"
+    },
+    {
+      "id": 15,
+      "name": "Meera Nair",
+      "phone": "+91 98765 43224",
+      "language": "hi"
+    }
+  ],
+  "debts": [
+    {
+      "id": 1,
+      "contact_id": 1,
+      "amount": 400,
+      "stage": 0,
+      "status": "open"
+    },
+    {
+      "id": 2,
+      "contact_id": 2,
+      "amount": 1250,
+      "stage": 1,
+      "status": "open"
+    },
+    {
+      "id": 3,
+      "contact_id": 3,
+      "amount": 850,
+      "stage": 0,
+      "status": "promised"
+    },
+    {
+      "id": 4,
+      "contact_id": 4,
+      "amount": 2100,
+      "stage": 1,
+      "status": "open"
+    },
+    {
+      "id": 5,
+      "contact_id": 5,
+      "amount": 575,
+      "stage": 0,
+      "status": "disputed"
+    },
+    {
+      "id": 6,
+      "contact_id": 6,
+      "amount": 1600,
+      "stage": 1,
+      "status": "open"
+    },
+    {
+      "id": 7,
+      "contact_id": 7,
+      "amount": 2300,
+      "stage": 0,
+      "status": "settled"
+    },
+    {
+      "id": 8,
+      "contact_id": 8,
+      "amount": 720,
+      "stage": 0,
+      "status": "settled"
+    }
+  ],
+  "demo_receipt": {
+    "amount": 400,
+    "reference": "UPI-DEMO-400-1026",
+    "timestamp": "2026-10-30T06:26:15"
+  }
+}
